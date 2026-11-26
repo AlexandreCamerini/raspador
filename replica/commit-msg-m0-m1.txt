@@ -1,0 +1,11 @@
+build: M0/M1 camada compliant sobre o Scrapling 0.5.1
+
+- policy: allowlist de kwargs, regra de headers, validação de sessão e de Spider (PolicyError RSP-P001..P007)
+- http: get/post/put/delete e sessões sync/async guardadas por requisição
+- spiders: Spider com robots.txt obrigatório (token raspador, 401/403 negado, TTL), allowed_domains em
+  start_requests/retry/redirect, parada de domínio após bloqueios seguidos, proxy por request recusado
+- audit: log JSONL em UTC (contrato C6)
+- tests: 56 passam, 1 pulado (porta local); contrato com o upstream e import guard
+- replica/: recon, arquitetura, design de saída, matriz de features e build log
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

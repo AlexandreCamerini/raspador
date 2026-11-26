@@ -1,0 +1,49 @@
+[project]
+name = "raspador"
+version = "0.1.0"
+description = "Raspagem web compliant sobre o Scrapling: robots.txt obrigatório, User-Agent identificado, sem evasão anti-bot."
+requires-python = ">=3.12"
+license = "BSD-3-Clause"
+dependencies = [
+    "scrapling[fetchers]==0.5.1",
+    # page.markdown() e a CLI; scrapling[fetchers] não traz (só os extras rag/ai, que puxam o MCP)
+    "markdownify>=1.2.0",
+]
+
+[project.optional-dependencies]
+# Navegador sem stealth (Playwright puro). Fixado na série 1.64, a mesma revisão de Chromium (1248) do
+# patchright que o scrapling[fetchers] já instala: um único Chromium no disco.
+browser = ["playwright>=1.64,<1.65"]
+
+[project.scripts]
+raspador = "raspador.cli:main"
+
+[dependency-groups]
+dev = ["playwright>=1.64,<1.65", "pytest>=8.4", "pytest-asyncio>=1.2", "pytest-httpserver>=1.1", "ruff>=0.14", "pyright>=1.1.405"]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/raspador"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["localnet: precisa abrir porta local (servidor HTTP de teste)"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pyright]
+include = ["src"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "standard"

@@ -1,0 +1,35 @@
+build: M0-M3 camada compliant sobre o Scrapling 0.5.1
+
+## M0/M1 camada compliant sobre o Scrapling 0.5.1
+
+- policy: allowlist de kwargs, regra de headers, validação de sessão e de Spider (PolicyError RSP-P001..P007)
+- http: get/post/put/delete e sessões sync/async guardadas por requisição
+- spiders: Spider com robots.txt obrigatório (token raspador, 401/403 negado, TTL), allowed_domains em
+  start_requests/retry/redirect, parada de domínio após bloqueios seguidos, proxy por request recusado
+- audit: log JSONL em UTC (contrato C6)
+- tests: 56 passam, 1 pulado (porta local); contrato com o upstream e import guard
+- replica/: recon, arquitetura, design de saída, matriz de features e build log
+
+## M2 robots avulso, adaptativo, crawldir seguro, markdown e CLI
+
+- robots.txt nas chamadas avulsas e em cada redirect, com o mesmo transporte da requisição; falha expira em 5 min
+- redirects seguidos à mão: SSRF (tudo que não é endereço global), credenciais retiradas em salto para outro host
+- adaptativo em $RASPADOR_HOME/adaptive.db (RaspadorStorage), isolado por domínio; raspador.Selector
+- crawldir 0700, recusa diretório inseguro, lockfile com órfão; pause/resume ponta a ponta
+- max_bytes (depois do download), markdown() com markdownify direto
+- CLI: raspador get/post/put/delete URL OUT, raspador install (só playwright chromium), códigos de saída
+- tests: 113 passam, 1 pulado (porta local); teste ao vivo contra quotes.toscrape.com
+
+## M3 navegador sem stealth, templates, modo dev e CLI fetch
+
+- raspador[browser]: Playwright 1.64 puro (mesmo Chromium 1248 do patchright), BrowserSession/AsyncBrowserSession,
+  esperas, page_action/page_setup, save_state/load_state (0600), robots antes e na URL final, guarda de rota
+  contra IP interno e recursos pesados, opções de patch de fingerprint recusadas (RSP-P002)
+- spider: AsyncBrowserSession aceita no SessionManager guardado; robots de sid de navegador por HTTP
+- templates CrawlSpider, SitemapSpider e ContentSpider com os padrões do raspador
+- modo dev em .raspador-cache/<nome>; stream e on_scraped_item testados
+- CLI: raspador fetch URL OUT
+- tests: 142 passam aqui; 5 de navegador e 1 de porta local rodam fora do sandbox
+- revisão: follow() em spider de navegador, robots pelo proxy da sessão, credenciais recusadas em headers de navegador, RSP-B002 na CLI
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

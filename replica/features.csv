@@ -1,0 +1,88 @@
+feature,area,priority,original,clone,notes
+GET/POST/PUT/DELETE avulso com Response unificado (S01),fetch-http,must,yes,yes,"[M1] exposto pela camada; | M1: raspador.get/post/put/delete guardados; F01 provado offline (merge real do upstream); falta robots.txt no avulso | M2: robots.txt no avulso e em cada redirect, SSRF em redirect, max_bytes; testado offline e ao vivo (quotes.toscrape.com)"
+"Sessão HTTP com cookies e conexões persistentes, sync e async (S02)",fetch-http,must,yes,yes,[M1] exposto pela camada; | M1: http_session/async_http_session guardam kwargs por request; testado
+"Headers, cookies, params, auth básica, timeout, redirects, verify SSL",fetch-http,must,yes,yes,[M1] exposto pela camada; | M1: passam pela allowlist; testado offline
+Detecção de encoding/charset do corpo,fetch-http,must,yes,yes,[M1] exposto pela camada; changelog v0.5 corrigiu casos de charset em maiúsculas e aspas | M2: herdado do upstream; sem teste próprio de latin-1/cp1252 | M2: latin-1 via Content-Type testado; a detecção no fio é do curl_cffi (mesma regra do header)
+HTTP/3,fetch-http,could,yes,no,[M4] exposto pela camada; via curl_cffi ou httpx[http3]; avaliar se vale
+Proxy por sessão e override por request,fetch-http,must,yes,partial,[M1] exposto pela camada; | M1: proxy fixo aceito na sessão e por request; sem teste | M2: proxy fixo por sessão; por request recusado em spider (RSP-P006); sem teste de proxy no fio
+"ProxyRotator: cíclica, aleatória, ponderada, custom",fetch-http,should,yes,no,[M4] exposto pela camada; proibido em spiders (upstream troca proxy a cada retry); só proxy fixo por domínio
+DNS-over-HTTPS para evitar vazamento de DNS com proxy,fetch-http,could,yes,no,[M4] exposto pela camada;
+Fetch com navegador avulso (Playwright Chromium ou Chrome do sistema) (S03),fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; Playwright puro, sem patchright prioridade must→should: navegador virou extra opcional | M3: raspador.browser.fetch sobre Playwright 1.64 (sem stealth); código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+"Esperas: network idle, wait_selector com estado, load_dom",fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; prioridade must→should: navegador virou extra opcional | M3: wait_selector/estado, network_idle, load_dom, wait; código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+"Bloquear recursos (imagens, fontes, mídia) para velocidade",fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; | M3: disable_resources (mesma lista do upstream) via guarda de rota; decisão testada offline; código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+Bloqueio de domínios e ad-block (lista de ~3.500),fetch-browser,should,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; precisa de lista própria com licença compatível"
+Sessão de navegador persistente sync/async (S04),fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; prioridade must→should: navegador virou extra opcional | M3: BrowserSession/AsyncBrowserSession; código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+"save_state/load_state (cookies, localStorage, IndexedDB)",fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; formato storage_state do Playwright | M3: storage_state com IndexedDB, arquivo 0600; load_state recria o contexto; código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+record_requests + network.search (captura de API em segundo plano),fetch-browser,should,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; limite de 1.000 requests e só corpos de texto"
+Shadow DOM: pierce_shadow e seletores em shadow root fechado,fetch-browser,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+Conexão a navegador remoto via cdp_url e executable_path custom,fetch-browser,should,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+page_action / pré-navegação (callback com a page do Playwright),fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; | M3: page_action e page_setup (sync/async); código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+Download de arquivos pelo navegador,fetch-browser,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+"Locale, headers extras e user-agent configurável no navegador",fetch-browser,should,yes,partial,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; UA identificado como raspador por padrão | M3: locale e extra_headers validados; UA raspador fixo; código pronto; testes com Chromium rodam só fora do sandbox (gate)"
+Seletores CSS com pseudo-elementos ::text e ::attr (estilo Parsel),parsing,must,yes,yes,[M1] exposto pela camada; | M1: response.css no spider testado ponta a ponta
+Seletores XPath,parsing,must,yes,yes,[M1] exposto pela camada; | M2: raspador.Selector reexporta a API do upstream; sem teste próprio | M2: testado (test_heranca)
+"find/find_all por filtros (tag, atributos, função)",parsing,must,yes,yes,[M1] exposto pela camada; | M2: idem XPath | M2: testado
+Busca por texto e por regex,parsing,must,yes,yes,[M1] exposto pela camada; | M2: idem XPath | M2: find_by_text e re() testados
+"Navegação no DOM: parent, children, siblings, next/previous, ancestors",parsing,must,yes,yes,[M1] exposto pela camada; | M2: idem XPath | M2: parent/next/children testados
+TextHandler com re/clean/json e AttributesHandler,parsing,should,yes,no,[M1] exposto pela camada;
+find_similar: elementos parecidos com um encontrado,parsing,should,yes,no,[M2] exposto pela camada;
+Geração automática de seletor CSS/XPath para um elemento,parsing,should,yes,no,[M2] exposto pela camada;
+page.markdown() e conversão para texto limpo,parsing,must,yes,yes,[M2] exposto pela camada; exige markdownify declarado direto (não vem em [fetchers]); só em Response | M2: markdownify direto no pyproject; conteúdo oculto removido; testado
+"Sanitização anti prompt injection (hidden, aria-hidden, zero-width, comentários, template)",parsing,should,yes,yes,"[M2] exposto pela camada; | M2: via markdown() e --ai-targeted (helpers privados do upstream, fixados em contrato)"
+Performance de parsing no nível de lxml (barra: benchmarks.md),parsing,should,yes,no,[M2] exposto pela camada; medir contra o benchmark de 5.000 elementos aninhados
+"auto_save: gravar as propriedades do elemento por (domínio, identifier) (S06)",adaptive,must,yes,yes,"[M2] exposto pela camada; diferencial real do produto | M2: RaspadorStorage em $RASPADOR_HOME/adaptive.db, chave (domínio, identifier); testado"
+adaptive=True: reencontrar o elemento por score de similaridade,adaptive,must,yes,yes,[M2] exposto pela camada; pesos não documentados; é o nó mais difícil | M2: reencontra o elemento após redesign; isolamento por domínio testado
+"Backend de storage plugável (SQLite padrão, thread-safe)",adaptive,should,yes,partial,[M2] exposto pela camada; | M2: SQLite do upstream em caminho próprio (adaptive.configure); backend plugável não exposto
+"Spider com start_urls, parse async, yield de item ou Request (S07)",spiders,must,yes,yes,"[M1] exposto pela camada; | M1: raspador.Spider sobre o engine real; testado | M2: crawl real de 2 páginas no quotes.toscrape.com (20 itens, robots consultado)"
+response.follow com referer e sem vazar body ou headers do request pai,spiders,must,yes,yes,"[M1] exposto pela camada; upstream herda headers e proxy do pai; teste de contrato no M0 decide se a camada limpa | M1: follow testado; Referer do próprio site aceito, extra_headers validado"
+"Scheduler com prioridade e dedup por fingerprint (url, method, body, sid)",spiders,must,yes,yes,[M1] exposto pela camada; | M1: herdado do upstream; sem teste próprio de dedup | M2: dedup por fingerprint testado
+"Concorrência global e por domínio, download delay",spiders,must,yes,yes,"[M1] exposto pela camada; padrões: 1 slot por domínio (máx 4), delay ≥0.5 s, validados em __init_subclass__ | M1: padrões 4 global / 1 por domínio / 1.0 s; limites validados em __init_subclass__; testado"
+AutoThrottle com backoff em bloqueio e Retry-After,spiders,should,yes,partial,[M1] exposto pela camada; | M1: ligado por padrão; sem teste próprio
+"robots.txt (Disallow, Crawl-delay, Request-rate) com cache por domínio",spiders,must,yes,yes,"[M1] exposto pela camada; código novo: upstream usa can_fetch('*') e trata 401/403 como permitido; consultar com token raspador, sem TTL no upstream; robots imutável (sem override) | M1: RaspadorRobots (token raspador, 401/403 = negado, TTL 24 h, imutável); testado"
+Detecção de bloqueio + retries customizáveis,spiders,should,yes,partial,[M2] exposto pela camada; código novo: is_blocked do upstream só olha status; Retry-After + parar domínio após N bloqueios; sem rotação de proxy | M1: domínio para após N bloqueios seguidos; testado. Falta: Retry-After próprio (hoje só via AutoThrottle do upstream)
+Pause/resume via crawldir com checkpoint atômico,spiders,must,yes,yes,"[M2] exposto pela camada; upstream cria crawldir com mkdir padrão; camada força 0700, recusa dono diferente, lockfile | M2: crawldir 0700, recusa dono/permissão errados, lockfile com órfão; pause/resume ponta a ponta testado"
+Modo dev: cache de respostas em disco e replay,spiders,should,yes,yes,[M3] exposto pela camada; não cachear resposta bloqueada | M3: cache em .raspador-cache/<nome>; replay sem rede testado
+Streaming de itens: async for item in spider.stream(),spiders,should,yes,yes,[M3] exposto pela camada; | M3: stream() testado
+"Várias sessões por spider roteadas por sid, start lazy",spiders,should,yes,partial,[M3] exposto pela camada; | M3: HTTP + navegador do raspador no mesmo spider; validação por request testada offline; render no spider só no gate
+"Lifecycle hooks: on_start, on_close, on_error, on_scraped_item",spiders,should,yes,partial,[M3] exposto pela camada; | M3: on_scraped_item testado; on_start/on_close/on_error sem teste próprio
+Filtro de domínios permitidos,spiders,must,yes,yes,"[M1] exposto pela camada; código novo: upstream não filtra start_requests, retry nem redirects; redirects viram Request validado | M1: allowed_domains vale para start_requests, retry e cada salto de redirect; testado"
+Estratégia BFS/DFS,spiders,could,yes,no,[M4] exposto pela camada;
+uvloop opcional,spiders,could,yes,no,[M4] exposto pela camada;
+CrawlSpider com Rules e LinkExtractor (S08),templates,should,yes,yes,"[M3] exposto pela camada; | M3: herança com padrões do raspador; regras, robots e domínio testados"
+"SitemapSpider (sitemap index, robots.txt, alternates)",templates,should,yes,yes,[M3] exposto pela camada; | M3: sitemap lido e robots respeitado; testado
+XMLFeedSpider e CSVFeedSpider,templates,could,yes,no,[M4] exposto pela camada;
+ContentSpider: site inteiro para corpus Markdown,templates,should,yes,yes,[M3] exposto pela camada; fluxo F12; upstream não filtra PII | M3: Markdown por página e arquivos em output_dir; testado; não filtra PII
+"ShopifySpider (produtos públicos, um item por variante)",templates,could,yes,no,[M4] exposto pela camada; lê o JSON público da loja; respeitar os ToS da loja
+ItemList.to_json/jsonl/csv/xml (S09),output,must,yes,yes,[M1] exposto pela camada; | M1: to_json testado com releitura
+"CrawlStats (status por código, bytes por domínio, concluído ou pausado)",output,must,yes,yes,"[M1] exposto pela camada; | M1: herdado do upstream; sem teste próprio | M2: status por código, requests e bytes por domínio testados"
+scrapling install (navegadores e dependências de sistema) (S10),cli,must,yes,yes,[M2] exposto pela camada; raspador install = só playwright install chromium; nunca scrapling install | M2: raspador install = só playwright install chromium; testado que não chama scrapling
+extract get/post/put/delete com formato pela extensão (.md/.html/.txt) (S11),cli,must,yes,yes,[M2] exposto pela camada; | M2: raspador get/post/put/delete URL OUT; .md/.html/texto; códigos de saída; testado e ao vivo
+extract fetch (navegador) com seletor -s,cli,should,yes,yes,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; | M3: raspador fetch URL OUT; pipeline comum com get; testado com navegador falso"
+flag --ai-targeted (conteúdo principal + sanitização),cli,should,yes,yes,"[M2] exposto pela camada; | M2: conteúdo principal + sanitização em .md, .html e texto"
+"Shell interativo IPython com atalhos, uncurl/curl2fetcher e view (S12)",cli,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+Servidor MCP: ferramentas avulsas make_request e browser_fetch_once (S13),mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4"
+"MCP: sessões (open, close, list) HTTP e navegador",mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4"
+"MCP: browser_extract (snapshot com refs, HTML, Markdown, texto, busca por regex)",mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4"
+"MCP: browser_actions em lote (clicar, preencher, teclado, esperar, diálogos)",mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4"
+"MCP: screenshot (viewport, página, elemento) e observe",mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+MCP: browser_evaluate (JS na página),mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+MCP: network_requests e network_request,mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4"
+MCP: save/load de estado do navegador,mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession;"
+MCP: transporte HTTP streamable com autenticação,mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4"
+Agent Skill com a API atual (S15),mcp,could,yes,no,"[M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; barata se gerada das docs do clone"
+Decorador scrapling_response para callbacks do Scrapy (S14),integration,could,yes,no,[M4] exposto pela camada;
+Imagem Docker com navegadores a cada release (S16),distribution,could,yes,no,[M4] exposto pela camada;
+Type hints completos (pyright/mypy) e alta cobertura de testes,quality,must,yes,partial,"[M0] exposto pela camada; upstream diz ter 92% de cobertura | M0: pyright 0 erros, ruff limpo; cobertura não medida"
+Solver de Cloudflare Turnstile/Interstitial (solve_cloudflare),stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+MCP resolvendo CAPTCHA durante a navegação,stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+"Spoofing de fingerprint do navegador (browserforge, datapoints)",stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+Ruído de canvas contra fingerprinting,stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+Patch de detecção headless e de fingerprints do Playwright (patchright),stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+Patch de vazamento de CDP runtime e WebRTC,stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+Defesa contra mismatch de timezone,stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+Impersonação de fingerprint TLS (impersonate),stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+stealthy_headers (headers falsos coerentes com navegador real),stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+Digitação humana com pausas aleatórias usada como camuflagem,stealth,could,yes,skip,"família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo"
+"Ecossistema de patrocinadores (proxies residenciais, APIs de token anti-bot)",ecosystem,could,yes,skip,"parcerias comerciais, não é produto"
+"Docs em 10 idiomas e comunidade (Discord, ~105 mil estrelas)",ecosystem,could,yes,skip,rede e confiança não se clonam; docs só em PT-BR/EN
+Log de auditoria JSONL de decisões de política (C6),policy,should,no,yes,"[M3] exposto pela camada; capacidade nova do raspador, não existe no upstream | M1: AuditLog JSONL, UTC, sem query; testado"
