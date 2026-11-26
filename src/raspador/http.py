@@ -37,6 +37,29 @@ _SESSION_KWARGS = frozenset(
 )
 
 
+class InvalidURL(ValueError):
+    """URL que não é http(s) com host. `file://`, `ftp://`, vazia ou sem esquema nunca chegam ao curl."""
+
+    code = "RSP-U001"
+
+    def __init__(self, url: str, why: str) -> None:
+        self.url = url
+        shown = url if len(url) <= 120 else url[:117] + "..."
+        super().__init__(f"{self.code}: URL inválida {shown!r}: {why}. Use uma URL http:// ou https:// completa.")
+
+
+def check_url(url: Any) -> None:
+    """Só http e https, com host. O curl_cffi lê `file://` do disco: sem esta checagem, um redirect ou um
+    modelo (MCP) leria arquivos locais."""
+    if not isinstance(url, str) or not url.strip():
+        raise InvalidURL(str(url or ""), "vazia")
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in {"http", "https"}:
+        raise InvalidURL(url, f"esquema {parts.scheme or '(nenhum)'!r} não permitido")
+    if not parts.hostname:
+        raise InvalidURL(url, "sem host")
+
+
 class RedirectBlocked(Exception):
     """Redirect para endereço interno (loopback, rede privada, link-local)."""
 
@@ -57,6 +80,7 @@ class InternalAddressBlocked(RedirectBlocked):
 
 def check_public_url(url: str) -> None:
     """Recusa URL em loopback, rede privada, link-local ou CGNAT. Usado onde a URL vem de um modelo."""
+    check_url(url)
     host = _host(url)
     if host == "localhost" or host.endswith(".localhost"):
         raise InternalAddressBlocked(url)
@@ -210,6 +234,7 @@ class _GuardedClient:
         if not location:
             return None
         target = urljoin(response.url, location)
+        check_url(target)  # Location: file:///... não é seguido
         if _host(target) != _host(response.url):
             if self._session_has_credentials():
                 return None  # credencial da sessão não pode ser retirada por salto: não segue
@@ -218,6 +243,7 @@ class _GuardedClient:
         return method, target, kwargs
 
     def request(self, method: str, url: str, **kwargs: Any):
+        check_url(url)
         follow, max_r, max_bytes, kwargs = self._prepare(url, kwargs)
         robots_fetch = self._robots_fetcher(kwargs)
         self._robots.check(url, robots_fetch)
@@ -292,6 +318,7 @@ class _AsyncGuardedClient(_GuardedClient):
         return fetch
 
     async def request(self, method: str, url: str, **kwargs: Any):  # type: ignore[override]
+        check_url(url)
         follow, max_r, max_bytes, kwargs = self._prepare(url, kwargs)
         robots_fetch = self._robots_fetcher(kwargs)
         await self._robots.check_async(url, robots_fetch)
@@ -331,6 +358,7 @@ def async_http_session(contact: str | None = None, **kwargs: Any) -> HttpSession
 
 
 def _one_shot(method: str, url: str, kwargs: dict[str, Any]):
+    check_url(url)
     contact = kwargs.pop("contact", None)
     max_bytes = kwargs.pop("max_bytes", DEFAULT_MAX_BYTES)
     check_request_kwargs({k: v for k, v in kwargs.items() if k not in {"follow_redirects", "max_redirects"}}, url=url)

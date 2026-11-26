@@ -38,9 +38,11 @@ from raspador.crawldir import crawl_lock, secure_crawldir
 from raspador.http import (
     DEFAULT_MAX_BYTES,
     HttpSession,
+    InvalidURL,
     carries_credentials,
     check_redirect_target_async,
     check_size,
+    check_url,
     spider_session,
     strip_credentials,
 )
@@ -94,6 +96,11 @@ class RaspadorRobots(RobotsTxtManager):
         self.on_denied: Any = None
 
     async def _get_parser(self, url: str, sid: str) -> Protego:
+        try:
+            check_url(url)
+        except InvalidURL:
+            # mailto:, tel:, file://...: não há robots a buscar; o manager recusa e audita com a URL certa
+            return Protego.parse("")
         if self._is_offsite(url):
             # Fora do escopo: não busca robots; o manager descarta e audita como offsite_dropped.
             return Protego.parse("")
@@ -213,6 +220,11 @@ class GuardedSessionManager(SessionManager):
     async def _guarded_fetch(self, request: Request, *, check_robots: bool):
         spider = self._spider
         domain = _host(request.url)
+        try:
+            check_url(request.url)
+        except InvalidURL as e:
+            spider._audit.record("policy_error", url=request.url, domain=domain, code=e.code, detail="url")
+            raise
         if domain in spider._stopped_domains:
             raise DomainStopped(domain)
         self._check_offsite(request.url)
@@ -239,6 +251,7 @@ class GuardedSessionManager(SessionManager):
             if not location:
                 break
             target = urljoin(response.url, location)
+            check_url(target)  # Location: file:///... não é seguido
             self._check_offsite(target)
             await check_redirect_target_async(response.url, target)
             cross_host = _host(target) != _host(response.url)

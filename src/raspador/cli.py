@@ -17,7 +17,7 @@ from curl_cffi.requests.exceptions import RequestException
 from playwright.sync_api import Error as PlaywrightError  # sempre presente via scrapling[fetchers]
 
 from raspador import _ui, http
-from raspador._render import format_for_path, render
+from raspador._render import InvalidSelector, check_selector, format_for_path, render
 from raspador.browser import BrowserUnavailable
 from raspador.policy import PolicyError
 from raspador.robots import RobotsDenied
@@ -93,6 +93,12 @@ def _run_fetch(
     ctx: _Ctx, url: str, output: str, css_selector: str | None, ai_targeted: bool, do_fetch: Callable[[], Any]
 ) -> None:
     """Busca, trata erros e grava a saída; comum a get/post/put/delete e fetch (navegador)."""
+    try:
+        http.check_url(url)
+        check_selector(css_selector)
+    except (http.InvalidURL, InvalidSelector) as e:
+        ctx.fail(_ui.EXIT_USAGE, e.code, str(e).split(": ", 1)[1], url=url)
+        return
     started = time.monotonic()
     try:
         page = do_fetch()

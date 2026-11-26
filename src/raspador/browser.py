@@ -38,6 +38,20 @@ _HEAVY_RESOURCES = frozenset(
 )
 
 
+class StateFileMissing(FileNotFoundError):
+    code = "RSP-F004"
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"{self.code}: arquivo de estado do navegador não existe: {path}. Gere com save_state().")
+
+
+def _state_path(path: str | Path) -> str:
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise StateFileMissing(p)
+    return str(p)
+
+
 class BrowserUnavailable(RuntimeError):
     code = "RSP-B001"
 
@@ -203,7 +217,7 @@ class BrowserSession:
         self._headless = headless
         self._locale = locale
         self._proxy = proxy
-        self._storage_state = str(storage_state) if storage_state else None
+        self._storage_state = _state_path(storage_state) if storage_state else None
         self._check_robots = check_robots
         self._defaults = defaults
         self._http = HttpSession(contact, proxy=proxy) if proxy else HttpSession(contact)
@@ -269,7 +283,7 @@ class BrowserSession:
 
     def load_state(self, path: str | Path) -> None:
         """Recria o contexto com o estado salvo. Abas abertas são fechadas."""
-        self._storage_state = str(Path(path).expanduser())
+        self._storage_state = _state_path(path)
         self._context.close()
         self._context = self._browser.new_context(**self._context_kwargs())
         self.network._attach(self._context)
@@ -279,6 +293,7 @@ class BrowserSession:
         return self._http_client._client.get(robots_url, follow_redirects="safe")
 
     def fetch(self, url: str, **kwargs: Any) -> Response:
+        http_mod.check_url(url)
         opts = _Options(url, kwargs, self._defaults)
         if self._check_robots:
             robots.shared_cache().check(url, self._robots_fetch)
@@ -310,6 +325,7 @@ class BrowserSession:
                 page.wait_for_timeout(opts.wait_ms)
             final_url = page.url
             if final_url != url:
+                http_mod.check_url(final_url)
                 robots.shared_cache().check(final_url, self._robots_fetch)
             response = build_response(
                 final_url,
@@ -371,7 +387,7 @@ class AsyncBrowserSession(BrowserSession):
         return p
 
     async def load_state(self, path: str | Path) -> None:  # type: ignore[override]
-        self._storage_state = str(Path(path).expanduser())
+        self._storage_state = _state_path(path)
         await self._context.close()
         self._context = await self._browser.new_context(**self._context_kwargs())
         self.network._attach(self._context)
@@ -380,6 +396,7 @@ class AsyncBrowserSession(BrowserSession):
         return await self._http_client._client.get(robots_url, follow_redirects="safe")
 
     async def fetch(self, url: str, **kwargs: Any) -> Response:  # type: ignore[override]
+        http_mod.check_url(url)
         opts = _Options(url, kwargs, self._defaults)
         if self._check_robots:
             await robots.shared_cache().check_async(url, self._robots_fetch)
@@ -409,6 +426,7 @@ class AsyncBrowserSession(BrowserSession):
                 await page.wait_for_timeout(opts.wait_ms)
             final_url = page.url
             if final_url != url:
+                http_mod.check_url(final_url)
                 await robots.shared_cache().check_async(final_url, self._robots_fetch)
             response = build_response(
                 final_url,

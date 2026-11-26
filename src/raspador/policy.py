@@ -113,6 +113,8 @@ def _same_site(a: str, b: str) -> bool:
 
 def check_headers(headers: Mapping[str, Any] | None, url: str | None = None) -> None:
     """Valida headers sem diferenciar maiúsculas. `url` é o alvo, usado para validar o Referer."""
+    if headers is not None and not isinstance(headers, Mapping):
+        raise TypeError(f"headers precisa ser um dict {{'Nome': 'valor'}}, não {type(headers).__name__}")
     for name, value in (headers or {}).items():
         key = name.lower()
         if key in _FORBIDDEN_HEADERS or key.startswith(_FORBIDDEN_HEADER_PREFIXES):

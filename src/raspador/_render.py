@@ -9,6 +9,27 @@ from scrapling.core.shell import Convertor
 Format = Literal["markdown", "html", "text"]
 
 
+class InvalidSelector(ValueError):
+    code = "RSP-U002"
+
+    def __init__(self, selector: str, cause: Exception) -> None:
+        self.selector = selector
+        super().__init__(f"{self.code}: seletor CSS inválido {selector!r}: {cause}")
+
+
+def check_selector(selector: str | None) -> None:
+    """Valida o seletor antes de buscar a página: erro de uso, não de rede nem de bug."""
+    if not selector:
+        return
+    from cssselect.parser import SelectorSyntaxError
+    from scrapling.parser import Selector
+
+    try:
+        Selector("<p></p>").css(selector)
+    except SelectorSyntaxError as e:
+        raise InvalidSelector(selector, e) from e
+
+
 def format_for_path(path: str) -> Format:
     if path == "-":
         return "text"

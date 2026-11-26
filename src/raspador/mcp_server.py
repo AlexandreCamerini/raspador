@@ -24,7 +24,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from playwright.async_api import Error as PlaywrightError
 
 from raspador import http
-from raspador._render import Format, render
+from raspador._render import Format, InvalidSelector, check_selector, render
 from raspador.browser import AsyncBrowserSession, BrowserUnavailable
 from raspador.policy import PolicyError
 from raspador.robots import RobotsDenied
@@ -80,7 +80,7 @@ async def _guarded(call: Callable[[], Awaitable[Any]]) -> Any:
         raise ToolError(f"{e}\n  não há contorno: esta opção não existe no raspador.") from e
     except RobotsDenied as e:
         raise ToolError(f"{e} Não há contorno: o raspador sempre respeita o robots.txt.") from e
-    except (http.RedirectBlocked, http.ResponseTooLarge, BrowserUnavailable) as e:
+    except (http.InvalidURL, InvalidSelector, http.RedirectBlocked, http.ResponseTooLarge, BrowserUnavailable) as e:
         raise ToolError(str(e)) from e
     except PlaywrightError as e:
         raise ToolError(f"RSP-B002: o navegador não carregou a página ({type(e).__name__}).") from e
@@ -102,13 +102,14 @@ def build_server(contact: str | None = None, allow_private: bool = False) -> MCP
     server = MCPServer(name="raspador", instructions=_INSTRUCTIONS)
     sessions: dict[str, dict[str, Any]] = {}
 
-    async def _target(url: str) -> None:
-        if not allow_private:
-
-            async def check() -> None:
+    async def _target(url: str, css_selector: str | None = None) -> None:
+        async def check() -> None:
+            check_selector(css_selector)
+            http.check_url(url)
+            if not allow_private:
                 http.check_public_url(url)
 
-            await _guarded(check)
+        await _guarded(check)
 
     def _get(session_id: str, kind: str) -> dict[str, Any]:
         entry = sessions.get(session_id)
@@ -130,7 +131,7 @@ def build_server(contact: str | None = None, allow_private: bool = False) -> MCP
         timeout: int = 30,
     ) -> str:
         """Busca uma URL por HTTP (sem JavaScript) e devolve o conteúdo sanitizado em markdown, html ou text."""
-        await _target(url)
+        await _target(url, css_selector)
         kw = _http_kwargs(headers, params, data, json_body, timeout)
 
         async def call() -> Any:
@@ -169,7 +170,7 @@ def build_server(contact: str | None = None, allow_private: bool = False) -> MCP
     ) -> str:
         """Requisição HTTP numa sessão aberta com open_request_session."""
         client = _get(session_id, "http")["client"]  # sessão primeiro: não custa rede
-        await _target(url)
+        await _target(url, css_selector)
         kw = _http_kwargs(headers, params, data, json_body, timeout)
         page = await _guarded(lambda: client.request(method.upper(), url, **kw))
         return _page_result(page, format, css_selector, max_chars)
@@ -208,7 +209,7 @@ def build_server(contact: str | None = None, allow_private: bool = False) -> MCP
         timeout_ms: int = 30_000,
     ) -> str:
         """Abre a URL no navegador da sessão e devolve o conteúdo renderizado e sanitizado."""
-        await _target(url)
+        await _target(url, css_selector)
         session = _get(session_id, "browser")["session"]
         kw: dict[str, Any] = {"network_idle": network_idle, "timeout": timeout_ms}
         if wait_selector:
@@ -228,9 +229,12 @@ def build_server(contact: str | None = None, allow_private: bool = False) -> MCP
         entry = _get(session_id, "browser")
         if not entry["record_requests"]:
             raise ToolError("RSP-M002: a sessão foi aberta sem record_requests=true.")
-        found = entry["session"].network.search(
-            url_pattern=url_pattern, method=method, status=status, limit=limit, include_static=False
-        )
+        try:
+            found = entry["session"].network.search(
+                url_pattern=url_pattern, method=method, status=status, limit=limit, include_static=False
+            )
+        except ValueError as e:  # regex inválido ou limit < 1
+            raise ToolError(f"RSP-M005: filtro de rede inválido: {e}") from e
         return json.dumps(
             [
                 {
