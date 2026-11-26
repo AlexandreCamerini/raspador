@@ -104,7 +104,7 @@ Actual (antes):
 Evidence: tests/test_segredos.py (8), tests/test_segredos_curl.py (12, na costura do curl_cffi: o log e o meta do
 upstream rodam de verdade), test_contract_upstream::test_engine_anota_proxy_nas_stats_antes_do_fetch_do_manager.
 Reprodução real repetida após a correção: `Proxy 'http://***@127.0.0.1:9'`, zero ocorrências da senha.
-Status: fixed (árvore de trabalho, commit pendente): `raspador._redact` (URL com e sem esquema, opções de
+Status: fixed em `d5f9bc9`: `raspador._redact` (URL com e sem esquema, opções de
 autenticação inteiras, fábrica de LogRecord para `scrapling.*` e `raspador.*`, limpeza de `meta`); proxy exige
 esquema (RSP-U003, saída 2); `Proxy-Authorization` é RSP-P003; navegador passa `username`/`password` separados
 (resolve C4); `--proxy` aceita `RASPADOR_PROXY`.
@@ -121,7 +121,7 @@ Actual: a página saiu por A e depois por B; a auditoria só registrou `blocked_
 `start_requests` dava rotação por request.
 Evidence: test_segredos_curl::test_trocar_de_sid_para_sair_por_outro_proxy_no_mesmo_dominio_e_p006 (e o controle
 test_dominios_diferentes_podem_usar_sessoes_com_proxies_diferentes).
-Status: fixed (árvore de trabalho, commit pendente): `GuardedSessionManager` fixa um egress (proxy ou direto) por
+Status: fixed em `d5f9bc9`: `GuardedSessionManager` fixa um egress (proxy ou direto) por
 host no primeiro acesso do run; outro egress no mesmo host é RSP-P006 com `detail="sid"`. Limite: a chave é o host;
 subdomínios diferentes podem usar proxies diferentes (ver plano do ProxyPool, B4).
 
@@ -135,7 +135,7 @@ Expected: sai pelo proxy.
 Actual: o curl_cffi usa `trust_env=True` e só zera `NOPROXY` com `trust_env=False`; o libcurl lê `no_proxy` sozinho
 e conecta direto (página e robots.txt).
 Evidence: test_segredos_curl::test_no_proxy_* (sync, async, spider_session).
-Status: fixed (árvore de trabalho, commit pendente): toda sessão curl do raspador nasce com `trust_env=False`.
+Status: fixed em `d5f9bc9`: toda sessão curl do raspador nasce com `trust_env=False`.
 Mudança de comportamento: `HTTP(S)_PROXY` do ambiente deixa de valer; o proxy precisa ser explícito (`--proxy`,
 `RASPADOR_PROXY` ou `proxy=`). Documentar no changelog.
 
@@ -156,7 +156,7 @@ Passos e Actual (antes):
    dividiam o cliente de robots do primeiro, com o proxy dele).
 4. Host com percent-encoding (`exa%6dple.com`) passava no `check_url`; o curl decodifica.
 Evidence: tests/test_proxy_pool_revisao.py (R1, R2, R7, R11).
-Status: fixed (árvore de trabalho, commit pendente): `raspador._hosts.canonical_host` (UTS 46 via `idna`, IPv4 por
+Status: fixed em `d5f9bc9`: `raspador._hosts.canonical_host` (UTS 46 via `idna`, IPv4 por
 `inet_aton`) usado na política, no spider e na chave de afinidade; `add` recusa `proxies`/`proxy_auth` (P006) e fixa
 `trust_env=False` também na `FetcherSession` crua; robots de navegador passa por `_check_egress`, um cliente por
 proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; subclasse de
