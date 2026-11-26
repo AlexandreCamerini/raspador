@@ -8,6 +8,8 @@ dependencies = [
     "scrapling[fetchers]==0.5.1",
     # page.markdown() e a CLI; scrapling[fetchers] não traz (só os extras rag/ai, que puxam o MCP)
     "markdownify>=1.2.0",
+    "publicsuffixlist>=1.0,<=1.1.2.20261112",
+    "idna>=3.7,<4",
 ]
 
 [project.optional-dependencies]

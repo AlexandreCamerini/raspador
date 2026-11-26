@@ -5,7 +5,7 @@ GET/POST/PUT/DELETE avulso com Response unificado (S01),fetch-http,must,yes,yes,
 Detecção de encoding/charset do corpo,fetch-http,must,yes,yes,[M1] exposto pela camada; changelog v0.5 corrigiu casos de charset em maiúsculas e aspas | M2: herdado do upstream; sem teste próprio de latin-1/cp1252 | M2: latin-1 via Content-Type testado; a detecção no fio é do curl_cffi (mesma regra do header)
 HTTP/3,fetch-http,could,yes,no,[M4] exposto pela camada; via curl_cffi ou httpx[http3]; avaliar se vale
 Proxy por sessão e override por request,fetch-http,must,yes,yes,"[M1] exposto pela camada; | M1: proxy fixo aceito na sessão e por request; sem teste | M2: proxy fixo por sessão; por request recusado em spider (RSP-P006); sem teste de proxy no fio | M4: proxy fixo no fio (página e robots pelo proxy) testado com servidor local; verificado fora do sandbox em 2026-11-26 (183 passed, 1 skipped: Scrapy)"
-"ProxyRotator: cíclica, aleatória, ponderada, custom",fetch-http,should,yes,no,[M4] exposto pela camada; proibido em spiders (upstream troca proxy a cada retry); só proxy fixo por domínio
+"ProxyRotator: cíclica, aleatória, ponderada, custom",fetch-http,should,yes,partial,"[M4] exposto pela camada; proibido em spiders (upstream troca proxy a cada retry); só proxy fixo por domínio | v1: raspador.ProxyPool com afinidade estática por eTLD+1 (mapa ou rendezvous), sem failover; rotação por request e troca por bloqueio fora por política (P006); tests/test_proxy_pool.py"
 DNS-over-HTTPS para evitar vazamento de DNS com proxy,fetch-http,could,yes,no,[M4] exposto pela camada;
 Fetch com navegador avulso (Playwright Chromium ou Chrome do sistema) (S03),fetch-browser,should,yes,yes,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; Playwright puro, sem patchright prioridade must→should: navegador virou extra opcional | M3: raspador.browser.fetch sobre Playwright 1.64 (sem stealth); verificado com Chromium real fora do sandbox em 2026-11-26 (29 passed, 0 skipped)"
 "Esperas: network idle, wait_selector com estado, load_dom",fetch-browser,should,yes,yes,"[M3] reimplementado sobre Playwright/SDK mcp, sem StealthySession; prioridade must→should: navegador virou extra opcional | M3: wait_selector/estado, network_idle, load_dom, wait; verificado com Chromium real fora do sandbox em 2026-11-26 (29 passed, 0 skipped)"
@@ -24,9 +24,9 @@ Seletores XPath,parsing,must,yes,yes,[M1] exposto pela camada; | M2: raspador.Se
 "find/find_all por filtros (tag, atributos, função)",parsing,must,yes,yes,[M1] exposto pela camada; | M2: idem XPath | M2: testado
 Busca por texto e por regex,parsing,must,yes,yes,[M1] exposto pela camada; | M2: idem XPath | M2: find_by_text e re() testados
 "Navegação no DOM: parent, children, siblings, next/previous, ancestors",parsing,must,yes,yes,[M1] exposto pela camada; | M2: idem XPath | M2: parent/next/children testados
-TextHandler com re/clean/json e AttributesHandler,parsing,should,yes,no,[M1] exposto pela camada;
-find_similar: elementos parecidos com um encontrado,parsing,should,yes,no,[M2] exposto pela camada;
-Geração automática de seletor CSS/XPath para um elemento,parsing,should,yes,no,[M2] exposto pela camada;
+TextHandler com re/clean/json e AttributesHandler,parsing,should,yes,yes,[M1] exposto pela camada; | diff: herdado via raspador.Selector; contrato em tests/test_parsing_api.py
+find_similar: elementos parecidos com um encontrado,parsing,should,yes,yes,[M2] exposto pela camada; | diff: herdado via raspador.Selector; contrato em tests/test_parsing_api.py
+Geração automática de seletor CSS/XPath para um elemento,parsing,should,yes,yes,[M2] exposto pela camada; | diff: herdado via raspador.Selector; contrato em tests/test_parsing_api.py
 page.markdown() e conversão para texto limpo,parsing,must,yes,yes,[M2] exposto pela camada; exige markdownify declarado direto (não vem em [fetchers]); só em Response | M2: markdownify direto no pyproject; conteúdo oculto removido; testado
 "Sanitização anti prompt injection (hidden, aria-hidden, zero-width, comentários, template)",parsing,should,yes,yes,"[M2] exposto pela camada; | M2: via markdown() e --ai-targeted (helpers privados do upstream, fixados em contrato)"
 Performance de parsing no nível de lxml (barra: benchmarks.md),parsing,should,yes,no,[M2] exposto pela camada; medir contra o benchmark de 5.000 elementos aninhados

@@ -9,11 +9,14 @@ A regra é uma allowlist: o upstream repassa ao curl_cffi qualquer kwarg que nã
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
 from raspador import __version__
+from raspador._hosts import canonical_host
+from raspador._redact import mask_proxy, redact_option
 
 USER_AGENT_PREFIX = "raspador/"
 MIN_DOWNLOAD_DELAY = 0.5
@@ -75,13 +78,54 @@ _FORBIDDEN_HEADER_PREFIXES = ("sec-ch-ua", "sec-fetch-")
 _FORBIDDEN_HEADERS = frozenset({"x-forwarded-for", "client-ip", "forwarded", "x-real-ip", "true-client-ip"})
 
 
+PROXY_SCHEMES = ("http", "https", "socks4", "socks4a", "socks5", "socks5h")
+
+
+class InvalidProxy(ValueError):
+    """Proxy sem esquema explícito: o curl aceita `usuario:senha@host`, e aí nada o reconhece como URL."""
+
+    code = "RSP-U003"
+
+    def __init__(self, value: Any) -> None:
+        self.value = mask_proxy(value)
+        super().__init__(
+            f"{self.code}: proxy inválido {self.value!r}; use um esquema explícito ({', '.join(PROXY_SCHEMES)}), "
+            "ex.: 'http://host:porta'."
+        )
+
+
+_USERINFO_OK = re.compile(r"^(?:[A-Za-z0-9\-._~!$&()*+,;=:]|%[0-9A-Fa-f]{2})*$")
+
+
+def check_proxy(value: Any) -> None:
+    if value is None:
+        return
+    # esquema explícito, host, porta válida e nada além: `#`, `/` ou `?` cru na senha viram fragmento, caminho ou
+    # query no parse; a senha precisa vir em percent-encoding (`%23`, `%2F`, `%3F`)
+    if not isinstance(value, str) or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+        raise InvalidProxy(value)  # urlsplit descarta tab e quebra de linha; o curl recebe a string crua
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in PROXY_SCHEMES or not parts.hostname:
+        raise InvalidProxy(value)
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        raise InvalidProxy(value)
+    try:
+        _ = parts.port  # ValueError para porta não numérica ou fora de 0-65535
+    except ValueError:
+        raise InvalidProxy(value) from None
+    # userinfo só com unreserved, sub-delims sem aspas e %XX: aspas, espaço, tab, "<" e "\\" crus quebram o
+    # mascaramento de log e meta; a senha precisa vir em percent-encoding
+    if not _USERINFO_OK.match(parts.netloc.rpartition("@")[0]):
+        raise InvalidProxy(value)
+
+
 class PolicyError(ValueError):
     """Uma opção pedida contraria a política do raspador."""
 
     def __init__(self, code: str, option: str, value: Any, reason: str, alternative: str) -> None:
         self.code = code
         self.option = option
-        self.value = value
+        self.value = redact_option(option, value)  # o segredo não fica nem no atributo
         self.reason = reason
         self.alternative = alternative
         super().__init__(str(self))
@@ -104,7 +148,12 @@ def default_user_agent(contact: str | None = None) -> str:
 
 
 def _host(url: str | None) -> str:
-    return (urlsplit(url).hostname or "").lower() if url else ""
+    """Host canônico (IDN em punycode, fullwidth, ponto final): `müller.com` e `xn--mller-kva.com` são o mesmo site."""
+    host = (urlsplit(url).hostname or "") if url else ""
+    try:
+        return canonical_host(host) if host else ""
+    except ValueError:
+        return host.lower()
 
 
 def _same_site(a: str, b: str) -> bool:
@@ -117,6 +166,14 @@ def check_headers(headers: Mapping[str, Any] | None, url: str | None = None) -> 
         raise TypeError(f"headers precisa ser um dict {{'Nome': 'valor'}}, não {type(headers).__name__}")
     for name, value in (headers or {}).items():
         key = name.lower()
+        if key == "proxy-authorization":
+            raise PolicyError(
+                "RSP-P003",
+                f"headers[{name!r}]",
+                "***",
+                "em túnel HTTPS o libcurl manda header extra para o alvo, não para o proxy: a credencial vazaria.",
+                "ponha a credencial na URL do proxy (proxy='http://usuario:senha@host:porta' ou RASPADOR_PROXY).",
+            )
         if key in _FORBIDDEN_HEADERS or key.startswith(_FORBIDDEN_HEADER_PREFIXES):
             raise PolicyError(
                 "RSP-P003",
@@ -164,6 +221,7 @@ def check_request_kwargs(kwargs: Mapping[str, Any], url: str | None = None) -> N
                 "a opção não está na lista de opções permitidas; o upstream a repassaria direto ao cliente HTTP.",
                 "use só: " + ", ".join(sorted(ALLOWED_REQUEST_KWARGS)) + ".",
             )
+    check_proxy(kwargs.get("proxy"))
     check_headers(kwargs.get("headers"), url=url)
     check_headers(kwargs.get("extra_headers"), url=url)
 

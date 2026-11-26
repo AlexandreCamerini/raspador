@@ -77,13 +77,100 @@ Actual: o `ValueError` do `NetworkRecorder.search` do upstream escapa da traduç
 Evidence: tests/e2e/test_aceite.py::test_f04_n1_mcp_filtro_de_rede_invalido_e_erro_de_ferramenta (2 variantes).
 Status: fixed em `000b863`: `ValueError` vira ToolError RSP-M005 com o motivo
 
+### BUG-006: credencial de proxy vaza no log do upstream, em erros, stats, meta e argv do navegador
+
+- Severity: S1 (vazamento de credencial no caminho padrão, disparável pelo alvo). Reclassificado de S2 depois da
+  revisão independente: a primeira correção não pegava o caminho principal.
+- Achado em: /replica-diff, ao avaliar o ProxyRotator; ampliado pela revisão adversarial
+- Superfície: S01, S03, S07, S11
+
+Passos
+1. `RASPADOR_PROXY=http://cliente:senha@127.0.0.1:9 raspador get https://ex.com/ x.md` (sem `-v`).
+2. Spider com `retry_blocked_request` que põe proxy por request.
+3. `raspador.get(url, proxy="http://cliente:senha@p:8080")` e depois `response.follow(...)` num spider com crawldir.
+
+Expected: a senha nunca aparece; o host do proxy continua visível para diagnóstico.
+Actual (antes):
+- o upstream loga `WARNING: Proxy 'http://cliente:senha@...' failed` em cada retry (`static.py:283/501`); o gatilho é
+  substring ("connection reset", "failed to connect"), então o alvo dispara com um RST;
+- `stats.proxies` e a mensagem do RSP-P006 mostravam a URL crua; `proxies` (dict) escapava do P006;
+- `Response.meta["proxy"]` carregava a URL, `follow()` copiava para o próximo request e o checkpoint fazia pickle;
+- proxy sem esquema (`cliente:senha@host:porta`, que o curl aceita) não era reconhecido pelo mascarador;
+- `proxy_auth=("u", "senha")` e `curl_options` saíam inteiros na mensagem de P001;
+- auditoria tirava só a query, não o `usuario:senha@`; `@` cru na senha deixava sobra;
+- navegador: `{"server": url_com_senha}` vai para o argv do Chromium (`ps`) e para o call log do Playwright;
+- `Proxy-Authorization` como header era aceito (em túnel HTTPS o libcurl manda para o alvo);
+- a ajuda do `--proxy` sugeria pôr a senha na linha de comando.
+Evidence: tests/test_segredos.py (8), tests/test_segredos_curl.py (12, na costura do curl_cffi: o log e o meta do
+upstream rodam de verdade), test_contract_upstream::test_engine_anota_proxy_nas_stats_antes_do_fetch_do_manager.
+Reprodução real repetida após a correção: `Proxy 'http://***@127.0.0.1:9'`, zero ocorrências da senha.
+Status: fixed (árvore de trabalho, commit pendente): `raspador._redact` (URL com e sem esquema, opções de
+autenticação inteiras, fábrica de LogRecord para `scrapling.*` e `raspador.*`, limpeza de `meta`); proxy exige
+esquema (RSP-U003, saída 2); `Proxy-Authorization` é RSP-P003; navegador passa `username`/`password` separados
+(resolve C4); `--proxy` aceita `RASPADOR_PROXY`.
+
+### BUG-007: trocar de `sid` muda o proxy de saída no mesmo domínio e contorna o RSP-P006
+
+- Severity: S2 (furo de política: rotação de proxy após bloqueio sem nenhuma opção proibida)
+- Achado em: revisão adversarial
+
+Passos: duas sessões `spider_session(proxy=A)` e `spider_session(proxy=B)`; `retry_blocked_request` faz
+`request.sid = "b"`.
+Expected: recusa RSP-P006 auditada.
+Actual: a página saiu por A e depois por B; a auditoria só registrou `blocked_retry`. Alternar sid em
+`start_requests` dava rotação por request.
+Evidence: test_segredos_curl::test_trocar_de_sid_para_sair_por_outro_proxy_no_mesmo_dominio_e_p006 (e o controle
+test_dominios_diferentes_podem_usar_sessoes_com_proxies_diferentes).
+Status: fixed (árvore de trabalho, commit pendente): `GuardedSessionManager` fixa um egress (proxy ou direto) por
+host no primeiro acesso do run; outro egress no mesmo host é RSP-P006 com `detail="sid"`. Limite: a chave é o host;
+subdomínios diferentes podem usar proxies diferentes (ver plano do ProxyPool, B4).
+
+### BUG-008: `NO_PROXY` no ambiente faz o libcurl ignorar o proxy explícito e sair pelo IP real
+
+- Severity: S2 (vaza o IP real do operador; exige a variável no ambiente)
+- Achado em: revisão adversarial
+
+Passos: `NO_PROXY=ex.com RASPADOR_PROXY=http://p:8080 raspador get https://ex.com/ x.md`.
+Expected: sai pelo proxy.
+Actual: o curl_cffi usa `trust_env=True` e só zera `NOPROXY` com `trust_env=False`; o libcurl lê `no_proxy` sozinho
+e conecta direto (página e robots.txt).
+Evidence: test_segredos_curl::test_no_proxy_* (sync, async, spider_session).
+Status: fixed (árvore de trabalho, commit pendente): toda sessão curl do raspador nasce com `trust_env=False`.
+Mudança de comportamento: `HTTP(S)_PROXY` do ambiente deixa de valer; o proxy precisa ser explícito (`--proxy`,
+`RASPADOR_PROXY` ou `proxy=`). Documentar no changelog.
+
+### BUG-009: grafias do mesmo host, sessão crua com `proxies=` e robots.txt de navegador escapavam do egress por domínio
+
+- Severity: S2 (furo de política e conexão pelo IP real; achados na revisão adversarial do ProxyPool, mas existiam
+  também sem pool)
+- Achado em: revisão adversarial do ProxyPool v1
+
+Passos e Actual (antes):
+1. IDN: `https://müller.com/` e `https://xn--mller-kva.com/` (o mesmo host para o curl) tinham chaves diferentes:
+   dois egress para o mesmo site, contadores de bloqueio e parada de domínio separados (alternar grafias contornava
+   o `domain_stopped`), e o Referer do `follow()` entre as duas grafias caía em RSP-P003 falso. O mesmo para
+   fullwidth (`ｅｘ.com`), `。` e IPv4 em decimal/hexadecimal (`1572395042`, `0x5d.0xb8.0xd8.0x22`).
+2. `FetcherSession(..., proxies={...})` crua no spider: `_egress_of` só lia `_default_proxy`, então dois sids com
+   `proxies` diferentes davam dois IPs no mesmo domínio sem P006; e a sessão crua ficava com `trust_env=True`.
+3. robots.txt de sid de navegador saía por `_robots_http` sem checar o egress do domínio (e todos os navegadores
+   dividiam o cliente de robots do primeiro, com o proxy dele).
+4. Host com percent-encoding (`exa%6dple.com`) passava no `check_url`; o curl decodifica.
+Evidence: tests/test_proxy_pool_revisao.py (R1, R2, R7, R11).
+Status: fixed (árvore de trabalho, commit pendente): `raspador._hosts.canonical_host` (UTS 46 via `idna`, IPv4 por
+`inet_aton`) usado na política, no spider e na chave de afinidade; `add` recusa `proxies`/`proxy_auth` (P006) e fixa
+`trust_env=False` também na `FetcherSession` crua; robots de navegador passa por `_check_egress`, um cliente por
+proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; subclasse de
+`FetcherSession` é RSP-P007; host que não canoniza (rótulo vazio, caractere invisível) é RSP-U001.
+
 ## A conferir (não reproduzido)
 
 - C1: (resolvido pelo BUG-004) o erro de launch com `storage_state` inexistente não acontece mais: o caminho é checado antes.
 - C2: `timeout` negativo ou zero é repassado ao curl sem validação. Comportamento do curl não verificado.
+- C4: (resolvido no BUG-006) credencial do proxy no navegador agora vai em `username`/`password`. Falta o teste com Chromium e proxy autenticado reais.
+- C5: proxy morto aparece como RSP-R001 ("robots.txt não permite"), porque falha na busca do robots vira negado e fica no cache pelo TTL de erro. Visto na reprodução do BUG-006; mensagem enganosa, sem vazamento.
 - C3: M3 do plano: `raspador mcp` configurado num Claude Code real ainda não foi testado à mão.
 
 ## Resumo da rodada (2026-11-26)
 
-Casos no plano: 42 de fluxo + 3 manuais. Dos 42: 40 rodados e passando, 1 n/a (F13, shell não construído), 1 skip (F14, sem Scrapy). Manuais: 2 pass, 1 pendente (C3). Bugs: S1 1, S2 0, S3 3, S4 1;
+Casos no plano: 42 de fluxo + 3 manuais. Dos 42: 40 rodados e passando, 1 n/a (F13, shell não construído), 1 skip (F14, sem Scrapy). Manuais: 2 pass, 1 pendente (C3). Bugs: S1 2, S2 3, S3 3, S4 1 (BUG-006 a 009 achados no /replica-diff e nas revisões);
 todos corrigidos com o teste vermelho antes. Nenhum S1 aberto.

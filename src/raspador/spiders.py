@@ -32,6 +32,8 @@ from scrapling.spiders import XMLFeedSpider as _UpstreamXMLFeedSpider
 from scrapling.spiders.robotstxt import RobotsTxtManager
 
 from raspador import robots as robots_rules
+from raspador._hosts import affinity_key, canonical_host
+from raspador._redact import mask_proxy_value, scrub_response
 from raspador.audit import AuditLog
 from raspador.browser import AsyncBrowserSession
 from raspador.crawldir import crawl_lock, secure_crawldir
@@ -39,6 +41,7 @@ from raspador.http import (
     DEFAULT_MAX_BYTES,
     HttpSession,
     InvalidURL,
+    _PinnedFetcherSession,
     carries_credentials,
     check_redirect_target_async,
     check_size,
@@ -53,6 +56,7 @@ from raspador.policy import (
     check_session,
     check_spider_class,
 )
+from raspador.proxies import ProxyPool, entry_url
 from raspador.robots import RobotsDenied
 
 __all__ = [
@@ -83,7 +87,12 @@ class DomainStopped(Exception):
 
 
 def _host(url: str) -> str:
-    return (urlsplit(url).hostname or "").lower()
+    """Host canônico: grafias do mesmo host (IDN, fullwidth, maiúsculas) não dividem contador de bloqueio nem parada."""
+    host = urlsplit(url).hostname or ""
+    try:
+        return canonical_host(host) if host else ""
+    except ValueError:
+        return host.lower()
 
 
 class RaspadorRobots(RobotsTxtManager):
@@ -149,14 +158,58 @@ class GuardedSessionManager(SessionManager):
         super().__init__()
         self._spider = spider
         self._robots: RaspadorRobots | None = None
-        self._robots_http: Any = None  # sessão HTTP só para robots.txt de sids de navegador
+        self._robots_clients: dict[str | None, tuple[Any, Any]] = {}  # proxy do navegador -> (sessão, cliente)
+        self._egress: dict[str, str | None] = {}  # domínio registrável -> proxy do primeiro acesso no run
+        self._pool: ProxyPool | None = None
+        self._assigned: set[str] = set()
+
+    def use_pool(self, pool: ProxyPool, contact: str | None) -> None:
+        """Uma sessão HTTP por entrada do pool (lazy); todo request HTTP é roteado pelo domínio registrável."""
+        for sid, session in self._sessions.items():
+            if self._is_browser(sid):
+                raise PolicyError(
+                    "RSP-P006",
+                    "proxy_pool",
+                    sid,
+                    "o pool v1 é só HTTP; um navegador no mesmo spider sairia por outro egress (e o robots.txt dele "
+                    "antes de qualquer checagem).",
+                    "rode as páginas de navegador num spider separado, com o proxy fixo do navegador.",
+                )
+            if getattr(session, "_default_proxy", None):
+                raise PolicyError(
+                    "RSP-P006",
+                    "proxy_pool",
+                    sid,
+                    "com proxy_pool, uma sessão HTTP com proxy próprio daria dois egress para o mesmo domínio.",
+                    "tire o proxy da sessão; quem escolhe o proxy por domínio é o pool (affinity).",
+                )
+        for entry in pool.entries:
+            session = spider_session(contact, proxy=entry_url(entry), **pool.session_kwargs)
+            self.add(f"proxy:{entry.label}", session, lazy=True)
+        self._pool = pool
+
+    def _route(self, request: Request) -> None:
+        # sempre pela URL, inclusive se o sid já for "proxy:...": o robots.txt de um destino de redirect chega aqui
+        # com o sid da origem
+        if self._pool is None:
+            return
+        if self._is_browser(request.sid):
+            return
+        entry = self._pool.entry_for(request.url)
+        request.sid = f"proxy:{entry.label}"
+        key = affinity_key(request.url)
+        if key not in self._assigned:
+            self._assigned.add(key)
+            self._spider._audit.record(
+                "proxy_assigned", url=request.url, domain=key, label=entry.label, group=entry.group
+            )
 
     def add(self, session_id: str, session: Any, *, default: bool = False, lazy: bool = False):
         if isinstance(session, AsyncBrowserSession):
             session._check_robots = False  # o engine já consultou; a URL final é checada pela própria sessão
             # duck typing: o SessionManager só usa __aenter__, __aexit__, _is_alive e fetch
             return super().add(session_id, cast(Any, session), default=default, lazy=lazy)
-        if not isinstance(session, FetcherSession):
+        if not isinstance(session, FetcherSession) or type(session) not in (FetcherSession, _PinnedFetcherSession):
             raise PolicyError(
                 "RSP-P007",
                 "session",
@@ -166,16 +219,32 @@ class GuardedSessionManager(SessionManager):
                 "use raspador.http.spider_session() ou raspador.browser.AsyncBrowserSession().",
             )
         check_session(session)
+        for attr, opcao in (("_default_proxies", "proxies"), ("_default_proxy_auth", "proxy_auth")):
+            if getattr(session, attr, None):
+                raise PolicyError(
+                    "RSP-P006",
+                    opcao,
+                    "***",
+                    "proxy por esquema ou credencial separada escapam da checagem de um egress por domínio.",
+                    "use raspador.http.spider_session(proxy='http://usuario:senha@host:porta').",
+                )
+        if type(session) is FetcherSession:
+            session.__class__ = _PinnedFetcherSession  # trust_env=False também na sessão crua do usuário
         return super().add(session_id, session, default=default, lazy=lazy)
 
-    def _is_browser(self, sid: str) -> bool:
-        return isinstance(self.get(sid or self.default_session_id), AsyncBrowserSession)
+    def _is_browser(self, sid: str | None) -> bool:
+        if (sid or "").startswith("proxy:"):
+            return False  # sids do pool são sempre HTTP, mesmo de uma entrada que não existe mais (é re-roteado)
+        try:
+            return isinstance(self.get(sid or self.default_session_id), AsyncBrowserSession)
+        except KeyError:
+            return False
 
     async def close(self) -> None:
         await super().close()
-        if self._robots_http is not None:
-            await self._robots_http.__aexit__(None, None, None)
-            self._robots_http = None
+        for sessao, _ in self._robots_clients.values():
+            await sessao.__aexit__(None, None, None)
+        self._robots_clients.clear()
 
     async def start(self) -> None:
         await super().start()
@@ -187,22 +256,29 @@ class GuardedSessionManager(SessionManager):
 
     async def _fetch_robots(self, url: str, sid: str):
         if self._is_browser(sid):
-            # robots.txt não precisa de navegador: vai por HTTP identificado, sem abrir aba
-            if self._robots_http is None:
-                nav = cast(AsyncBrowserSession, self.get(sid or self.default_session_id))
+            # robots.txt não precisa de navegador: vai por HTTP identificado, sem abrir aba, mas pelo mesmo egress
+            # da sessão de navegador e só depois da checagem de um egress por domínio
+            self._check_egress(Request(url, sid=sid), _host(url))
+            nav = cast(AsyncBrowserSession, self.get(sid or self.default_session_id))
+            if nav._proxy not in self._robots_clients:
                 contact = nav._contact or self._spider.contact
-                # mesmo proxy da sessão de navegador: o robots não pode sair pelo IP real
-                self._robots_http = HttpSession(contact, proxy=nav._proxy) if nav._proxy else HttpSession(contact)
-                self._robots_client = await self._robots_http.__aenter__()
-            return await self._robots_client._client.get(url, follow_redirects="safe")
+                sessao = HttpSession(contact, proxy=nav._proxy) if nav._proxy else HttpSession(contact)
+                self._robots_clients[nav._proxy] = (sessao, await sessao.__aenter__())
+            return await self._robots_clients[nav._proxy][1]._client.get(url, follow_redirects="safe")
         return await self._guarded_fetch(Request(url, sid=sid), check_robots=False)
 
     async def fetch(self, request: Request):
-        if "proxy" in request._session_kwargs:
+        # o engine do upstream anota o proxy do request em stats.proxies logo antes de chamar fetch, e as stats saem
+        # no log final e em CrawlResult: mascara a credencial antes que alguém as leia
+        stats = getattr(getattr(self._spider, "_engine", None), "stats", None)
+        if stats is not None and stats.proxies:
+            stats.proxies[:] = [mask_proxy_value(p) for p in stats.proxies]
+        opcao = next((k for k in ("proxy", "proxies") if k in request._session_kwargs), None)
+        if opcao is not None:
             e = PolicyError(
                 "RSP-P006",
-                "proxy",
-                request._session_kwargs["proxy"],
+                opcao,
+                request._session_kwargs[opcao],
                 "proxy por request permite trocar de proxy depois de um bloqueio, o que é evasão de rate limit.",
                 "defina um proxy fixo na sessão: raspador.http.spider_session(proxy=...).",
             )
@@ -213,7 +289,8 @@ class GuardedSessionManager(SessionManager):
         return await self._guarded_fetch(request, check_robots=True)
 
     def _is_offsite(self, url: str) -> bool:
-        allowed = self._spider.allowed_domains
+        # mesma forma canônica dos dois lados: allowed_domains={"müller.com"} casa com xn--mller-kva.com
+        allowed = {_host(f"http://{d}/") for d in self._spider.allowed_domains or ()}
         host = _host(url)
         return bool(allowed) and not any(host == d or host.endswith("." + d) for d in allowed)
 
@@ -228,23 +305,38 @@ class GuardedSessionManager(SessionManager):
         if domain in spider._stopped_domains:
             raise DomainStopped(domain)
         self._check_offsite(request.url)
+        original = request
+        if self._pool is not None:
+            # roteia uma cópia: o sid do usuário segue no fingerprint (dedup) e no follow() das respostas
+            request = request.copy()
+            self._route(request)
+        self._check_egress(request, domain)
         browser_sid = self._is_browser(request.sid)
         try:
             if browser_sid:
                 check_browser_kwargs(request._session_kwargs, url=request.url)
             else:
                 check_request_kwargs(request._session_kwargs, url=request.url)
+            verify = request._session_kwargs.get("verify")
+            if self._pool is not None and verify is not None and verify is not True and not isinstance(verify, str):
+                raise PolicyError(
+                    "RSP-P010",
+                    "verify",
+                    verify,
+                    "com proxy_pool, desligar a verificação TLS deixa qualquer proxy do pool ler e alterar o HTTPS.",
+                    "mantenha verify=True; para CA corporativa use verify='/caminho/ca.pem'.",
+                )
         except PolicyError as e:
             spider._audit.record("policy_error", url=request.url, domain=domain, code=e.code, detail=e.option)
             raise
         if browser_sid:
             # o navegador segue redirects sozinho (e checa robots da URL final); aqui só o domínio final
-            response = await super().fetch(request)
+            response = await self._fetch_upstream(request)
             self._check_offsite(response.url)
             check_size(response, spider.max_bytes)
             return response
         request._session_kwargs.pop("follow_redirects", None)
-        response = await super().fetch(request)
+        response = await self._fetch_upstream(request)
         hops = 0
         while 300 <= response.status < 400 and hops < MAX_REDIRECT_HOPS:
             location = response.headers.get("location") or response.headers.get("Location")
@@ -276,11 +368,45 @@ class GuardedSessionManager(SessionManager):
                 meta=dict(request.meta),
                 **kwargs,
             )
-            response = await super().fetch(hop)
+            self._route(hop)  # destino em outro domínio sai pelo proxy do destino
+            self._check_egress(hop, _host(target))
+            response = await self._fetch_upstream(hop)
             hops += 1
         check_size(response, spider.max_bytes)
-        response.request = request
+        response.request = original
         return response
+
+    async def _fetch_upstream(self, request: Request):
+        return scrub_response(await super().fetch(request))
+
+    def _egress_of(self, sid: str | None) -> str | None:
+        session = self.get(sid or self.default_session_id)
+        proxy = getattr(session, "_default_proxy", None) or getattr(session, "_proxy", None)
+        if not proxy:
+            return None
+        p = urlsplit(proxy)  # mesma saída escrita de outro jeito (maiúsculas, barra final) não é outro egress
+        return f"{p.scheme.lower()}://{p.username or ''}@{(p.hostname or '').lower()}:{p.port or ''}"
+
+    def _check_egress(self, request: Request, domain: str) -> None:
+        """Um egress (proxy ou conexão direta) por domínio por run, entre todos os sids. Trocar de sid para sair por
+        outro proxy no mesmo domínio é o ProxyRotator por outro caminho (RSP-P006)."""
+        try:
+            key = affinity_key(request.url)
+        except ValueError:
+            key = domain.rstrip(".")
+        egress = self._egress_of(request.sid)
+        first = self._egress.setdefault(key, egress)
+        if first != egress:
+            e = PolicyError(
+                "RSP-P006",
+                "sid",
+                request.sid,
+                "o domínio já foi acessado por outro proxy neste run; trocar de sessão para mudar o IP de saída é "
+                "evasão de rate limit ou de bloqueio por IP.",
+                "use uma sessão (um proxy) por domínio; proxies diferentes servem para domínios diferentes.",
+            )
+            self._spider._audit.record("policy_error", url=request.url, domain=domain, code=e.code, detail="sid")
+            raise e
 
     def _check_offsite(self, url: str) -> None:
         if self._is_offsite(url):
@@ -301,6 +427,7 @@ class Spider(_UpstreamSpider):
     contact: ClassVar[str | None] = None
     policy_override: ClassVar[str | None] = None
     audit_path: ClassVar[str | Path | None] = None
+    proxy_pool: ClassVar[ProxyPool | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -327,6 +454,12 @@ class Spider(_UpstreamSpider):
         except PolicyError as e:
             self._audit.record("policy_error", code=e.code, detail=e.option)
             raise
+        if self.proxy_pool is not None:
+            try:
+                guarded.use_pool(self.proxy_pool, self.contact)
+            except PolicyError as e:
+                self._audit.record("policy_error", code=e.code, detail=e.option)
+                raise
         self._session_manager = guarded
         if self.development_mode and not self.development_cache_dir:
             # o padrão do upstream é .scrapling_cache/<nome>; o do raspador já está no .gitignore

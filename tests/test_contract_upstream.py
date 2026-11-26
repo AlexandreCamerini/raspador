@@ -175,3 +175,19 @@ def test_sdk_mcp_tem_mcpserver_e_client():
 
     assert importlib.metadata.version("mcp").startswith("2.")
     assert callable(MCPServer.tool) and Client and StdioServerParameters
+
+
+def test_engine_anota_proxy_nas_stats_antes_do_fetch_do_manager():
+    """O mascaramento de stats.proxies no GuardedSessionManager.fetch depende desta ordem."""
+    src = inspect.getsource(CrawlerEngine)
+    assert src.index("self.stats.proxies.append") < src.index("await self.session_manager.fetch(request)")
+
+
+def test_fetchersession_monta_config_pelos_slots_e_aceita_troca_de_classe():
+    """`_PinnedFetcherSession` depende disto: config lida de `self.__slots__` e layout igual ao da base."""
+    from raspador.http import _PinnedFetcherSession, _session_config
+
+    assert "for k in self.__slots__" in inspect.getsource(FetcherSession.__enter__)
+    sessao = FetcherSession(**_session_config(None, {"proxy": "http://p.exemplo:8080"}))
+    sessao.__class__ = _PinnedFetcherSession
+    assert sessao._default_proxy == "http://p.exemplo:8080"

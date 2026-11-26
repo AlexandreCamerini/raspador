@@ -10,13 +10,22 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 EVENTS = frozenset(
-    {"robots_denied", "policy_error", "policy_override", "domain_stopped", "blocked_retry", "offsite_dropped"}
+    {
+        "robots_denied",
+        "policy_error",
+        "policy_override",
+        "domain_stopped",
+        "blocked_retry",
+        "offsite_dropped",
+        "proxy_assigned",
+    }
 )
 
 
 def _strip_query(url: str) -> str:
+    """Sem query, fragmento nem credencial (`usuario:senha@`)."""
     parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], parts.path, "", ""))
 
 
 class AuditLog:

@@ -14,6 +14,8 @@ from urllib.parse import urljoin, urlsplit
 from scrapling.fetchers import FetcherSession
 
 from raspador import robots
+from raspador._hosts import canonical_host
+from raspador._redact import scrub_response
 from raspador.adaptive import RaspadorStorage
 from raspador.policy import check_headers, check_request_kwargs, default_user_agent
 
@@ -58,6 +60,12 @@ def check_url(url: Any) -> None:
         raise InvalidURL(url, f"esquema {parts.scheme or '(nenhum)'!r} não permitido")
     if not parts.hostname:
         raise InvalidURL(url, "sem host")
+    if "%" in parts.netloc.rpartition("@")[2]:
+        raise InvalidURL(url, "host com percent-encoding")  # o curl decodifica; a chave de afinidade não
+    try:
+        canonical_host(parts.hostname)
+    except ValueError as e:
+        raise InvalidURL(url, f"host inválido ({e})") from None
 
 
 class RedirectBlocked(Exception):
@@ -188,11 +196,38 @@ def _session_config(contact: str | None, kwargs: dict[str, Any]) -> dict[str, An
     }
 
 
+def _pin_egress(logic: Any) -> Any:
+    """Desliga `trust_env` na sessão curl: com ele, `NO_PROXY=alvo` no ambiente faz o libcurl ignorar o proxy
+    explícito e sair direto pelo IP real (e `HTTPS_PROXY` mudaria o egress sem o raspador saber)."""
+    for attr in ("_curl_session", "_async_curl_session"):
+        curl = getattr(logic, attr, None)
+        if curl is not None:
+            curl.trust_env = False
+    return logic
+
+
+class _PinnedFetcherSession(FetcherSession):
+    """FetcherSession cujo cliente curl nunca lê proxy do ambiente."""
+
+    __slots__ = ()  # mesmo layout da base: o manager fixa uma FetcherSession crua trocando a classe
+
+    def __enter__(self):  # type: ignore[override]
+        return _pin_egress(super().__enter__())
+
+    async def __aenter__(self):  # type: ignore[override]
+        return _pin_egress(await super().__aenter__())
+
+
+# `__slots__ = ()` deixa o layout igual ao da base (permite trocar a classe de uma sessão crua), mas o upstream monta a
+# config com `self.__slots__`: depois de criada a classe, o atributo volta a apontar para os slots da base
+_PinnedFetcherSession.__slots__ = FetcherSession.__slots__  # type: ignore[misc]
+
+
 def spider_session(contact: str | None = None, **kwargs: Any) -> FetcherSession:
     """Sessão crua para `Spider.configure_sessions`. O spider guarda cada request e segue redirects sozinho."""
     config = _session_config(contact, kwargs)
     config["follow_redirects"] = False
-    return FetcherSession(**config)
+    return _PinnedFetcherSession(**config)
 
 
 def _next_hop(method: str, kwargs: dict[str, Any], status: int) -> tuple[str, dict[str, Any]]:
@@ -247,7 +282,7 @@ class _GuardedClient:
         follow, max_r, max_bytes, kwargs = self._prepare(url, kwargs)
         robots_fetch = self._robots_fetcher(kwargs)
         self._robots.check(url, robots_fetch)
-        response = self._send(method, url, kwargs)
+        response = scrub_response(self._send(method, url, kwargs))
         hops = 0
         while follow and 300 <= response.status < 400 and hops < max_r:
             nxt = self._hop(response, method, kwargs)
@@ -256,7 +291,7 @@ class _GuardedClient:
             method, target, kwargs = nxt
             check_redirect_target(response.url, target)
             self._robots.check(target, robots_fetch)
-            response = self._send(method, target, kwargs)
+            response = scrub_response(self._send(method, target, kwargs))
             hops += 1
         check_size(response, max_bytes)
         return response
@@ -289,7 +324,7 @@ class HttpSession:
         self._max_bytes = max_bytes
         config = _session_config(contact, kwargs)
         config["follow_redirects"] = False
-        self._session = FetcherSession(**config)
+        self._session = _PinnedFetcherSession(**config)
 
     def __enter__(self) -> _GuardedClient:
         return _GuardedClient(self._session.__enter__(), self._follow, self._max_redirects, self._max_bytes)
@@ -322,7 +357,7 @@ class _AsyncGuardedClient(_GuardedClient):
         follow, max_r, max_bytes, kwargs = self._prepare(url, kwargs)
         robots_fetch = self._robots_fetcher(kwargs)
         await self._robots.check_async(url, robots_fetch)
-        response = await self._send(method, url, kwargs)
+        response = scrub_response(await self._send(method, url, kwargs))
         hops = 0
         while follow and 300 <= response.status < 400 and hops < max_r:
             nxt = self._hop(response, method, kwargs)
@@ -331,7 +366,7 @@ class _AsyncGuardedClient(_GuardedClient):
             method, target, kwargs = nxt
             await check_redirect_target_async(response.url, target)
             await self._robots.check_async(target, robots_fetch)
-            response = await self._send(method, target, kwargs)
+            response = scrub_response(await self._send(method, target, kwargs))
             hops += 1
         check_size(response, max_bytes)
         return response

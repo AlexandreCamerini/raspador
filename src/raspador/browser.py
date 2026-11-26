@@ -19,7 +19,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from scrapling.engines.toolbelt.custom import Response
 
@@ -186,6 +186,22 @@ def _private_file(path: str | Path) -> Path:
     return p
 
 
+def _playwright_proxy(url: str) -> dict[str, str]:
+    """O Chromium ignora `usuario:senha@` em `--proxy-server`, e o Playwright põe esse valor no argv (visível no
+    `ps`) e no call log de erro de launch. A credencial vai separada."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    server = f"{parts.scheme}://{host}" + (f":{parts.port}" if parts.port else "")
+    out = {"server": server}
+    if parts.username:
+        out["username"] = unquote(parts.username)
+    if parts.password:
+        out["password"] = unquote(parts.password)
+    return out
+
+
 class BrowserSession:
     """Navegador vivo entre fetches. `with BrowserSession() as b: b.fetch(url)`."""
 
@@ -235,7 +251,7 @@ class BrowserSession:
     def _launch_kwargs(self) -> dict[str, Any]:
         kw: dict[str, Any] = {"headless": self._headless}
         if self._proxy:
-            kw["proxy"] = {"server": self._proxy}
+            kw["proxy"] = _playwright_proxy(self._proxy)
         return kw
 
     def __enter__(self) -> BrowserSession:

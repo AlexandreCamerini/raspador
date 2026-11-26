@@ -17,9 +17,10 @@ from curl_cffi.requests.exceptions import RequestException
 from playwright.sync_api import Error as PlaywrightError  # sempre presente via scrapling[fetchers]
 
 from raspador import _ui, http
+from raspador._redact import redact
 from raspador._render import InvalidSelector, check_selector, format_for_path, render
 from raspador.browser import BrowserUnavailable
-from raspador.policy import PolicyError
+from raspador.policy import InvalidProxy, PolicyError
 from raspador.robots import RobotsDenied
 
 _BLOCK_STATUS = {401, 403, 407, 429}
@@ -72,6 +73,7 @@ class _Ctx:
         detail: str | None = None,
         policy_err: PolicyError | None = None,
     ) -> None:
+        message, hint, detail = redact(message), hint and redact(hint), detail and redact(detail)
         if self.report == "json":
             self.emit_json(
                 ok=False,
@@ -102,6 +104,9 @@ def _run_fetch(
     started = time.monotonic()
     try:
         page = do_fetch()
+    except InvalidProxy as e:
+        ctx.fail(_ui.EXIT_USAGE, e.code, str(e).split(": ", 1)[1], url=url)
+        return
     except PolicyError as e:
         ctx.fail(_ui.EXIT_POLICY, e.code, str(e), url=url, policy_err=e)
         return
@@ -249,7 +254,12 @@ def _common_options(with_body: bool):
             click.option("-H", "--header", multiple=True, help="Header 'Nome: valor' (pode repetir)."),
             click.option("--cookies", help="Cookies 'a=1; b=2'."),
             click.option("--timeout", default=30, show_default=True, help="Timeout em segundos."),
-            click.option("--proxy", help="Proxy fixo 'http://usuario:senha@host:porta'."),
+            click.option(
+                "--proxy",
+                envvar="RASPADOR_PROXY",
+                help="Proxy fixo 'http://host:porta'. Com credencial, prefira a variável RASPADOR_PROXY "
+                "(fora do histórico do shell e do ps).",
+            ),
             click.option("-p", "--param", multiple=True, help="Query string chave=valor (pode repetir)."),
             click.option("--follow-redirects/--no-follow-redirects", default=True, show_default=True),
             click.option("--verify/--no-verify", default=True, show_default=True, help="Verificar o certificado TLS."),
@@ -306,7 +316,11 @@ for _method in ("get", "post", "put", "delete"):
 @click.option("--disable-resources", is_flag=True, help="Não carrega imagens, fontes, mídia e CSS.")
 @click.option("--timeout", default=30, show_default=True, help="Timeout em segundos.")
 @click.option("--locale", help="Locale do navegador, ex.: pt-BR.")
-@click.option("--proxy", help="Proxy fixo 'http://host:porta'.")
+@click.option(
+    "--proxy",
+    envvar="RASPADOR_PROXY",
+    help="Proxy fixo 'http://host:porta'. Com credencial, prefira a variável RASPADOR_PROXY.",
+)
 @click.option("--ai-targeted", is_flag=True, help="Só o conteúdo principal, sem elementos ocultos.")
 @click.option("--contact", help="E-mail ou URL que vai no User-Agent para o dono do site falar com você.")
 @click.option("--color", type=click.Choice(["auto", "always", "never"]), default="auto", show_default=True)
