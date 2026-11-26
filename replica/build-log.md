@@ -46,8 +46,8 @@ Notas do M2:
 
 | ID | data | status | o que falta | mais difícil que o esperado |
 | --- | --- | --- | --- | --- |
-| S03 | 2026-11-26 | partial | testes com Chromium real só rodam fora do sandbox (gate) | o sandbox do agente bloqueia as portas Mach do Chromium no macOS; não há como ver o navegador rodar daqui |
-| S04 | 2026-11-26 | partial | idem; `record_requests` e `cdp_url` são M4 | ordem das rotas do Playwright: a última registrada roda primeiro e `continue_()` pula as outras. A guarda (SSRF e recursos) é registrada depois do `page_setup` e usa `fallback()` |
+| S03 | 2026-11-26 | done | — | o sandbox do agente bloqueia as portas Mach do Chromium no macOS; não há como ver o navegador rodar daqui |
+| S04 | 2026-11-26 | done | `record_requests` e `cdp_url` são M4 | ordem das rotas do Playwright: a última registrada roda primeiro e `continue_()` pula as outras. A guarda (SSRF e recursos) é registrada depois do `page_setup` e usa `fallback()` |
 | S08 | 2026-11-26 | done | XMLFeed/CSVFeed/Shopify são M4 | — |
 | S11 | 2026-11-26 | done | — | `raspador fetch` reaproveita o pipeline de erros e saída do `get` |
 
@@ -62,3 +62,4 @@ Notas do M3:
   credenciais em `headers`/`extra_headers` de navegador são recusadas (o header vai para todo recurso da página, inclusive terceiros); login é por `storage_state`;
   erros do Playwright na CLI (timeout, rede) viram RSP-B002 com saída 5, não traceback com saída 1.
 - Os 5 testes com Chromium real ainda não rodaram em lugar nenhum: rodam pela primeira vez no gate, fora do sandbox. As linhas de navegador do features.csv ficam `partial` até lá.
+- 2026-11-26: os 5 testes com Chromium real e o teste de headers no fio passaram fora do sandbox (`29 passed`, 0 skipped em test_browser.py + test_http.py). S03 e S04 passam a done; o follow() no spider de navegador está provado com Chromium.
