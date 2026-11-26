@@ -249,3 +249,72 @@ def test_robots_de_sid_de_navegador_sai_pelo_proxy_da_sessao(site, tmp_path):
     assert S().start().items == []  # negado pelo robots, sem abrir o navegador
     rob = [r for r in fake.requests if r["url"].endswith("/robots.txt")][0]["final"]
     assert rob["proxy"] == "http://proxy.exemplo:3128"
+
+
+# ---- M4: domínios bloqueados, anúncios, CDP local e histórico de rede ----
+
+
+def test_dominio_bloqueado_e_subdominios_sao_abortados():
+    bloqueados = frozenset({"rastreio.com"})
+    assert browser.route_decision("https://cdn.rastreio.com/p.js", "script", "ex.com", False, bloqueados) == "abort"
+    assert browser.route_decision("https://rastreio.com/p.js", "script", "ex.com", False, bloqueados) == "abort"
+    assert browser.route_decision("https://outrorastreio.com/p.js", "script", "ex.com", False, bloqueados) == "continue"
+
+
+def test_block_ads_usa_a_lista_do_upstream():
+    dominios = browser.blocked_domains_for(block_ads=True, blocked_domains=None)
+    assert len(dominios) > 3000 and "doubleclick.net" in dominios
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ws://127.0.0.1:9222/devtools/browser/x",
+        "http://localhost:9222",
+        "http://192.168.0.10:9222",
+        "http://[::1]:9222",
+    ],
+)
+def test_cdp_local_e_aceito(url):
+    browser.check_cdp_url(url)
+
+
+@pytest.mark.parametrize("url", ["wss://chrome.provedor-de-scraping.example/?token=x", "ws://8.8.8.8:9222"])
+def test_cdp_publico_e_recusado(url, monkeypatch):
+    import raspador.http
+
+    monkeypatch.setattr(raspador.http, "resolve", lambda host: ["34.120.0.1"])
+    with pytest.raises(PolicyError) as exc:
+        browser.check_cdp_url(url)
+    assert exc.value.code == "RSP-P009"
+
+
+def test_sessao_com_cdp_publico_nem_e_criada(monkeypatch):
+    import raspador.http
+
+    monkeypatch.setattr(raspador.http, "resolve", lambda host: ["34.120.0.1"])
+    with pytest.raises(PolicyError):
+        browser.BrowserSession(cdp_url="wss://remoto.example/x")
+
+
+@chromium
+def test_record_requests_guarda_a_api_por_tras_da_pagina(site):
+    site({"https://ex.com/robots.txt": ROBOTS})
+    html = """<html><body><div id="out"></div><script>
+      fetch('/api/dados').then(r => r.json()).then(d => document.getElementById('out').textContent = d.nome)
+    </script></body></html>"""
+
+    def setup(page):
+        def handler(route):
+            if route.request.url.endswith("/api/dados"):
+                route.fulfill(status=200, body='{"nome": "café"}', content_type="application/json")
+            else:
+                route.fulfill(status=200, body=html, content_type="text/html")
+
+        page.route("**/*", handler)
+
+    with browser.BrowserSession(record_requests=True) as b:
+        r = b.fetch("https://ex.com/p", wait_selector="#out:not(:empty)", page_setup=setup)
+        api = b.network.search(url_pattern=r"/api/dados$")
+    assert r.css("#out::text").get() == "café"
+    assert len(api) == 1 and api[0].json() == {"nome": "café"}

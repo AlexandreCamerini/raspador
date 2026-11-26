@@ -149,3 +149,29 @@ def test_templates_do_upstream_mantem_a_hierarquia_usada():
     assert issubclass(ContentSpider, CrawlSpider)
     assert UpstreamSpider in SitemapSpider.__mro__
     assert "development_cache_dir or" in inspect.getsource(CrawlerEngine.__init__)
+
+
+def test_network_recorder_e_ad_domains_continuam_sem_patchright():
+    from scrapling.engines._browsers import _network
+    from scrapling.engines.toolbelt.ad_domains import AD_DOMAINS
+
+    src = inspect.getsource(_network)
+    assert "patchright" not in src
+    rec = _network.NetworkRecorder(enabled=True, max_requests=10)
+    for name in ("_attach", "_detach", "search", "get", "clear"):
+        assert callable(getattr(rec, name)), name
+    assert isinstance(AD_DOMAINS, frozenset) and len(AD_DOMAINS) > 3000
+
+
+def test_network_recorder_grava_network_id_no_meta():
+    from scrapling.engines._browsers import _network
+
+    assert "network_id=self.last_id" in inspect.getsource(_network.NetworkRecorder._store)
+
+
+def test_sdk_mcp_tem_mcpserver_e_client():
+    from mcp import Client, StdioServerParameters
+    from mcp.server.mcpserver import MCPServer
+
+    assert importlib.metadata.version("mcp").startswith("2.")
+    assert callable(MCPServer.tool) and Client and StdioServerParameters

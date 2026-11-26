@@ -47,6 +47,25 @@ class RedirectBlocked(Exception):
         super().__init__(f"{self.code}: redirect para endereço interno bloqueado: {url}")
 
 
+class InternalAddressBlocked(RedirectBlocked):
+    """URL inicial em endereço interno, quando quem escolhe a URL não é o usuário (MCP)."""
+
+    def __init__(self, url: str) -> None:
+        Exception.__init__(self, f"{self.code}: endereço interno bloqueado: {url}")
+        self.url = url
+
+
+def check_public_url(url: str) -> None:
+    """Recusa URL em loopback, rede privada, link-local ou CGNAT. Usado onde a URL vem de um modelo."""
+    host = _host(url)
+    if host == "localhost" or host.endswith(".localhost"):
+        raise InternalAddressBlocked(url)
+    literal = _literal_ip(host)
+    addrs = [literal] if literal else resolve(host)
+    if any(_is_internal(a) for a in addrs):
+        raise InternalAddressBlocked(url)
+
+
 class ResponseTooLarge(Exception):
     """Corpo maior que `max_bytes`. A checagem é depois do download: limita o que segue, não a memória do pico."""
 

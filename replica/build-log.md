@@ -63,3 +63,30 @@ Notas do M3:
   erros do Playwright na CLI (timeout, rede) viram RSP-B002 com saída 5, não traceback com saída 1.
 - Os 5 testes com Chromium real ainda não rodaram em lugar nenhum: rodam pela primeira vez no gate, fora do sandbox. As linhas de navegador do features.csv ficam `partial` até lá.
 - 2026-11-26: os 5 testes com Chromium real e o teste de headers no fio passaram fora do sandbox (`29 passed`, 0 skipped em test_browser.py + test_http.py). S03 e S04 passam a done; o follow() no spider de navegador está provado com Chromium.
+
+## M4 (2026-11-26)
+
+| ID | data | status | o que falta | mais difícil que o esperado |
+| --- | --- | --- | --- | --- |
+| S04 | 2026-11-26 | done | ver `record_requests` passar com Chromium (gate) | o `NetworkRecorder` do upstream é genérico de Playwright: reaproveitado em vez de reescrito |
+| S08 | 2026-11-26 | done | extração de produtos do Shopify sem teste próprio | no XMLFeedSpider o `node` é elemento lxml, não Selector |
+| S13 | 2026-11-26 | done | snapshot com refs, ações, screenshot e estado no MCP | no MCP quem escolhe a URL é o modelo: nova fronteira de confiança, SSRF na primeira URL |
+| S14 | 2026-11-26 | partial | teste pula sem Scrapy (o upstream exige Scrapy instalado) | — |
+| S12, S15, S16 | — | no | shell, Agent Skill e Docker não feitos | — |
+
+Planejado x feito no MCP: 14 ferramentas planejadas, 9 entregues (make_request, open_request_session,
+session_make_request, browser_open, browser_fetch, browser_network_requests, browser_network_request,
+list_sessions, close_session). Ficaram de fora de propósito: browser_actions, browser_evaluate (JavaScript
+arbitrário escolhido pelo modelo), browser_screenshot e save/load de estado.
+
+Notas do M4:
+- Revisão do advisor achou e corrigi com teste vermelho antes:
+  SSRF na primeira URL do MCP (o modelo podia ler localhost/rede privada/metadados de nuvem; robots 404 não protege),
+  agora recusado com RSP-N002, salvo `raspador mcp --allow-private`;
+  `browser_network_requests` devolvia `"id": null` (o upstream grava `network_id`, não `request_id`);
+  limite de 5 navegadores abertos por servidor (RSP-M004); método HTTP restrito a GET/POST/PUT/DELETE no schema;
+  o corpo de rede gravado sai cru, e a descrição da ferramenta agora diz isso (antes a docstring dizia que tudo era sanitizado).
+- `cdp_url` só aceita localhost e rede privada (RSP-P009): provedor público de "scraping browser" costuma resolver CAPTCHA e disfarçar fingerprint, evasão terceirizada.
+- `mcp` fixado em `>=2.3,<3`: a 2.x renomeou FastMCP para MCPServer.
+- Cobertura no sandbox: 77% (browser.py 39% porque os testes com Chromium pulam aqui). Falta o número fora do sandbox.
+- 2026-11-26, fora do sandbox: `183 passed, 1 skipped` (só o teste de Scrapy, sem a dependência). Passaram os testes com Chromium (incluindo `record_requests`) e o de proxy no fio. Cobertura real: 86% no total (browser.py 80%, mcp_server.py 76%, integrations/scrapy.py 0% porque o teste pula sem Scrapy).

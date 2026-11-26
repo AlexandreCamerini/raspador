@@ -24,8 +24,11 @@ from scrapling.fetchers import FetcherSession
 from scrapling.spiders import ContentSpider as _UpstreamContentSpider
 from scrapling.spiders import CrawlRule, LinkExtractor, Request, SessionManager
 from scrapling.spiders import CrawlSpider as _UpstreamCrawlSpider
+from scrapling.spiders import CSVFeedSpider as _UpstreamCSVFeedSpider
+from scrapling.spiders import ShopifySpider as _UpstreamShopifySpider
 from scrapling.spiders import SitemapSpider as _UpstreamSitemapSpider
 from scrapling.spiders import Spider as _UpstreamSpider
+from scrapling.spiders import XMLFeedSpider as _UpstreamXMLFeedSpider
 from scrapling.spiders.robotstxt import RobotsTxtManager
 
 from raspador import robots as robots_rules
@@ -59,8 +62,11 @@ __all__ = [
     "OffsiteRequest",
     "Request",
     "RobotsDenied",
+    "CSVFeedSpider",
+    "ShopifySpider",
     "SitemapSpider",
     "Spider",
+    "XMLFeedSpider",
 ]
 
 MAX_REDIRECT_HOPS = 10
@@ -360,3 +366,15 @@ class SitemapSpider(Spider, _UpstreamSitemapSpider):
 
 class ContentSpider(Spider, _UpstreamContentSpider):
     """Site inteiro para Markdown sanitizado (F12). Não filtra dados pessoais: veja a LGPD antes de exportar."""
+
+
+class XMLFeedSpider(Spider, _UpstreamXMLFeedSpider):
+    """Feed XML/RSS nó a nó, com os padrões e a guarda do raspador."""
+
+
+class CSVFeedSpider(Spider, _UpstreamCSVFeedSpider):
+    """Feed CSV linha a linha, com os padrões e a guarda do raspador."""
+
+
+class ShopifySpider(Spider, _UpstreamShopifySpider):
+    """Produtos públicos de uma loja Shopify (JSON da própria loja). Respeite os termos de uso da loja."""

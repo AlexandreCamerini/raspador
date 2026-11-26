@@ -15,9 +15,9 @@ import click
 from curl_cffi import CurlError
 from curl_cffi.requests.exceptions import RequestException
 from playwright.sync_api import Error as PlaywrightError  # sempre presente via scrapling[fetchers]
-from scrapling.core.shell import Convertor
 
 from raspador import _ui, http
+from raspador._render import format_for_path, render
 from raspador.browser import BrowserUnavailable
 from raspador.policy import PolicyError
 from raspador.robots import RobotsDenied
@@ -49,18 +49,6 @@ def _parse_cookies(raw: str | None) -> dict[str, str]:
     if not raw:
         return {}
     return dict(part.strip().split("=", 1) for part in raw.split(";") if "=" in part)
-
-
-def _render(page: Any, out: str, selector: str | None, ai_targeted: bool) -> str:
-    """Formato pela extensão: .md Markdown, .html HTML, o resto texto. --ai-targeted sanitiza sempre."""
-    suffix = Path(out).suffix.lower() if out != "-" else ".txt"
-    if suffix == ".md":
-        return page.markdown(css_selector=selector, main_content_only=ai_targeted)
-    base = Convertor._sanitize_for_ai(Convertor._strip_noise_tags(page)) if ai_targeted else page
-    nodes = base.css(selector) if selector else [base]
-    if suffix in {".html", ".htm"}:
-        return "\n".join(str(n.html_content) for n in nodes)
-    return "\n".join(str(n.get_all_text(separator="\n", strip=True)) for n in nodes)
 
 
 class _Ctx:
@@ -168,7 +156,7 @@ def _run_fetch(
             hint=hint,
         )
         return
-    content = _render(page, output, css_selector, ai_targeted)
+    content = render(page, format_for_path(output), css_selector, sanitize=ai_targeted)
     empty = bool(css_selector) and not content.strip()
     try:
         if output == "-":
@@ -352,6 +340,21 @@ def fetch_cmd(
     _run_fetch(
         ctx, url, output, css_selector, ai_targeted, lambda: browser.fetch(url, contact=contact, **session_kw, **kwargs)
     )
+
+
+@main.command(name="mcp")
+@click.option("--contact", help="E-mail ou URL que vai no User-Agent de todas as requisições do servidor.")
+@click.option("--allow-private", is_flag=True, help="Permite URLs em localhost e rede privada (recusadas por padrão).")
+def mcp_cmd(contact: str | None, allow_private: bool) -> None:
+    """Servidor MCP do raspador em stdio, para Claude Code, Claude Desktop e outros clientes MCP.
+
+    Ferramentas sem evasão: requisições HTTP, navegador, histórico de rede e sessões.
+    Requer raspador[mcp].
+    """
+    from raspador.mcp_server import build_server
+
+    logging.getLogger("scrapling").setLevel(logging.WARNING)
+    build_server(contact=contact, allow_private=allow_private).run("stdio")
 
 
 @main.command()

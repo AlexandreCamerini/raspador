@@ -23,10 +23,11 @@ from urllib.parse import urlsplit
 
 from scrapling.engines.toolbelt.custom import Response
 
+from raspador import http as http_mod
 from raspador import robots
 from raspador.adaptive import RaspadorStorage
 from raspador.http import DEFAULT_MAX_BYTES, HttpSession, _is_internal, _literal_ip, check_size
-from raspador.policy import check_browser_kwargs, default_user_agent
+from raspador.policy import PolicyError, check_browser_kwargs, default_user_agent
 
 __all__ = ["AsyncBrowserSession", "BrowserSession", "BrowserUnavailable", "fetch"]
 
@@ -51,9 +52,54 @@ def _host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower()
 
 
-def route_decision(request_url: str, resource_type: str, target_host: str, disable_resources: bool) -> str:
+def _matches(host: str, domains: frozenset[str]) -> bool:
+    if not domains:
+        return False
+    parts = host.split(".")
+    return any(".".join(parts[i:]) in domains for i in range(len(parts)))
+
+
+def blocked_domains_for(block_ads: bool, blocked_domains: Any) -> frozenset[str]:
+    """Domínios a bloquear: os do usuário mais, com `block_ads`, a lista de anúncios que o upstream já instala."""
+    out = {d.lower().lstrip(".") for d in (blocked_domains or ())}
+    if block_ads:
+        from scrapling.engines.toolbelt.ad_domains import AD_DOMAINS
+
+        out |= AD_DOMAINS
+    return frozenset(out)
+
+
+def check_cdp_url(cdp_url: str) -> None:
+    """Navegador remoto só na sua máquina ou rede privada. Provedor público de "scraping browser" costuma
+    resolver CAPTCHA e disfarçar fingerprint: é evasão terceirizada."""
+    host = (urlsplit(cdp_url).hostname or "").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return
+    literal = _literal_ip(host)
+    addrs = [literal] if literal else http_mod.resolve(host)
+    if addrs and all(_is_internal(a) for a in addrs):
+        return
+    raise PolicyError(
+        "RSP-P009",
+        "cdp_url",
+        f"{urlsplit(cdp_url).scheme}://{host}",
+        "navegador remoto em endereço público costuma ser um serviço que resolve CAPTCHA e disfarça o "
+        "navegador, o que é evasão terceirizada.",
+        "use um Chromium seu, na sua máquina ou rede privada (ws://127.0.0.1:9222/...).",
+    )
+
+
+def route_decision(
+    request_url: str,
+    resource_type: str,
+    target_host: str,
+    disable_resources: bool,
+    blocked: frozenset[str] = frozenset(),
+) -> str:
     """'abort' ou 'continue' para cada requisição da página. Função pura, testada sem navegador."""
     host = _host(request_url)
+    if host and host != target_host and _matches(host, blocked):
+        return "abort"
     if host and host != target_host:
         literal = _literal_ip(host)
         if host == "localhost" or host.endswith(".localhost") or (literal and _is_internal(literal)):
@@ -109,6 +155,13 @@ class _Options:
         self.wait_until: Literal["commit", "domcontentloaded"] = "domcontentloaded" if self.load_dom else "commit"
 
 
+def _recorder(enabled: bool, max_requests: int, asynchronous: bool) -> Any:
+    """Histórico de rede do upstream (`NetworkRecorder`): genérico de Playwright, sem patchright."""
+    from scrapling.engines._browsers._network import NetworkRecorder
+
+    return NetworkRecorder(enabled=enabled, max_requests=max_requests, asynchronous=asynchronous)
+
+
 def _cookies(raw: Any) -> dict[str, str]:
     return {c["name"]: c["value"] for c in raw}
 
@@ -131,9 +184,21 @@ class BrowserSession:
         proxy: str | None = None,
         storage_state: str | Path | None = None,
         check_robots: bool = True,
+        record_requests: bool = False,
+        max_recorded_requests: int = 1000,
+        blocked_domains: Any = None,
+        block_ads: bool = False,
+        cdp_url: str | None = None,
         **defaults: Any,
     ) -> None:
         check_browser_kwargs(defaults)
+        if cdp_url:
+            check_cdp_url(cdp_url)
+        self._cdp_url = cdp_url
+        self._record_requests = record_requests
+        self._max_recorded = max_recorded_requests
+        self._blocked = blocked_domains_for(block_ads, blocked_domains)
+        self.network: Any = None
         self._contact = contact
         self._headless = headless
         self._locale = locale
@@ -164,11 +229,16 @@ class BrowserSession:
 
         try:
             self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(**self._launch_kwargs())
+            if self._cdp_url:
+                self._browser = self._pw.chromium.connect_over_cdp(self._cdp_url)
+            else:
+                self._browser = self._pw.chromium.launch(**self._launch_kwargs())
             self._context = self._browser.new_context(**self._context_kwargs())
         except Exception as e:
             self._close_quietly()
             raise BrowserUnavailable(e) from e
+        self.network = _recorder(self._record_requests, self._max_recorded, asynchronous=False)
+        self.network._attach(self._context)
         self._http_client = self._http.__enter__()
         self._is_alive = True
         return self
@@ -202,6 +272,7 @@ class BrowserSession:
         self._storage_state = str(Path(path).expanduser())
         self._context.close()
         self._context = self._browser.new_context(**self._context_kwargs())
+        self.network._attach(self._context)
 
     # -- fetch --------------------------------------------------------------------------------------
     def _robots_fetch(self, robots_url: str):
@@ -217,7 +288,7 @@ class BrowserSession:
 
             def guard(route: Any) -> None:
                 decision = route_decision(
-                    route.request.url, route.request.resource_type, target, opts.disable_resources
+                    route.request.url, route.request.resource_type, target, opts.disable_resources, self._blocked
                 )
                 # fallback() repassa a rotas registradas antes (page_setup) ou, sem elas, à rede
                 route.abort() if decision == "abort" else route.fallback()
@@ -263,11 +334,16 @@ class AsyncBrowserSession(BrowserSession):
 
         try:
             self._pw = await async_playwright().start()
-            self._browser = await self._pw.chromium.launch(**self._launch_kwargs())
+            if self._cdp_url:
+                self._browser = await self._pw.chromium.connect_over_cdp(self._cdp_url)
+            else:
+                self._browser = await self._pw.chromium.launch(**self._launch_kwargs())
             self._context = await self._browser.new_context(**self._context_kwargs())
         except Exception as e:
             await self._aclose_quietly()
             raise BrowserUnavailable(e) from e
+        self.network = _recorder(self._record_requests, self._max_recorded, asynchronous=True)
+        self.network._attach(self._context)
         self._http_client = await self._http.__aenter__()
         self._is_alive = True
         return self
@@ -298,6 +374,7 @@ class AsyncBrowserSession(BrowserSession):
         self._storage_state = str(Path(path).expanduser())
         await self._context.close()
         self._context = await self._browser.new_context(**self._context_kwargs())
+        self.network._attach(self._context)
 
     async def _robots_fetch(self, robots_url: str):  # type: ignore[override]
         return await self._http_client._client.get(robots_url, follow_redirects="safe")
@@ -312,7 +389,7 @@ class AsyncBrowserSession(BrowserSession):
 
             async def guard(route: Any) -> None:
                 decision = route_decision(
-                    route.request.url, route.request.resource_type, target, opts.disable_resources
+                    route.request.url, route.request.resource_type, target, opts.disable_resources, self._blocked
                 )
                 await (route.abort() if decision == "abort" else route.fallback())
 

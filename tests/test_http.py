@@ -103,3 +103,25 @@ def test_get_avulso_ponta_a_ponta_offline_identifica_e_extrai(monkeypatch):
     assert headers["user-agent"] == "raspador/0.1.0 (+mailto:eu@exemplo.com)"
     assert not any(k.startswith(("sec-ch-ua", "sec-fetch-")) for k in headers)
     assert "referer" not in headers
+
+
+@localnet
+def test_proxy_fixo_leva_pagina_e_robots_pelo_proxy(httpserver):
+    """O servidor local faz papel de proxy HTTP: recebe a requisição em forma absoluta para outro host."""
+    hosts = []
+
+    def handler(request):
+        from werkzeug import Response
+
+        hosts.append((request.path, request.headers.get("Host")))
+        return Response(
+            "" if request.path == "/robots.txt" else "<h1>via proxy</h1>",
+            status=404 if request.path == "/robots.txt" else 200,
+        )
+
+    httpserver.expect_request("/robots.txt").respond_with_handler(handler)
+    httpserver.expect_request("/p").respond_with_handler(handler)
+    proxy = httpserver.url_for("/").rstrip("/")
+    r = raspador.get("http://alvo.exemplo.test/p", proxy=proxy)
+    assert r.css("h1::text").get() == "via proxy"
+    assert hosts == [("/robots.txt", "alvo.exemplo.test"), ("/p", "alvo.exemplo.test")]
