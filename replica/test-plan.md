@@ -1,6 +1,6 @@
 # Plano de testes: raspador
 
-Build: `3c4e0db` + correções desta rodada. Data: 2026-11-26. Ambiente: local, transporte HTTP falso (só
+Build: `3c4e0db`; correções em `000b863`. Data: 2026-11-26. Ambiente: local, transporte HTTP falso (só
 `_make_request` trocado, merge real do upstream), Chromium real fora do sandbox.
 
 ## Adaptação do replica-test

@@ -24,7 +24,7 @@ Evidence: tests/e2e/test_aceite.py::test_f01_e1_e2_e3_url_invalida_e_recusada_an
 test_f01_n4_redirect_para_file_nao_e_seguido, test_f02_e1, test_f06_e1, test_f10_e3, test_f11_n2 (3 variantes).
 Sonda: `[..., 'file:///robots.txt', 'file:///etc/hosts']` na lista de requisições do transporte falso.
 Suspected cause: nenhuma checagem de esquema; o robots e a guarda de SSRF supõem http(s) com host.
-Status: fixed (árvore de trabalho, commit pendente): `http.check_url` (só http/https com host) na primeira URL e em cada salto de redirect, no avulso, sessões, spider (o robots não busca nada para URL inválida; o manager audita uma linha policy_error RSP-U001 com a URL certa, sem robots_denied — achado na revisão: a primeira versão auditava `file:///robots.txt` e contava a start URL como robots negado, e cada link mailto:/tel:/javascript: inflava `robots_disallowed_count`), navegador (antes de abrir e na URL final), CLI (saída 2) e MCP. Confirmado com curl real: `raspador get file://.../segredo.txt -` sai com RSP-U001 e código 2
+Status: fixed em `000b863`: `http.check_url` (só http/https com host) na primeira URL e em cada salto de redirect, no avulso, sessões, spider (o robots não busca nada para URL inválida; o manager audita uma linha policy_error RSP-U001 com a URL certa, sem robots_denied — achado na revisão: a primeira versão auditava `file:///robots.txt` e contava a start URL como robots negado, e cada link mailto:/tel:/javascript: inflava `robots_disallowed_count`), navegador (antes de abrir e na URL final), CLI (saída 2) e MCP. Confirmado com curl real: `raspador get file://.../segredo.txt -` sai com RSP-U001 e código 2
 
 ### BUG-002: seletor CSS inválido derruba a CLI (saída 1) e o MCP ("unexpected exception")
 
@@ -40,7 +40,7 @@ Expected: erro de uso com código (saída 2 na CLI; erro de ferramenta RSP-U002 
 Actual: CLI sai com 1 (código de bug) via `SelectorSyntaxError`; MCP registra traceback inteiro como
 "Tool 'make_request' raised an unexpected exception" e devolve "Error executing tool make_request" sem dizer o quê.
 Evidence: test_f10_e1_seletor_invalido_e_erro_de_uso, test_f11_n3_mcp_seletor_invalido_e_erro_de_ferramenta.
-Status: fixed (árvore de trabalho, commit pendente): `_render.check_selector` valida antes de buscar; CLI sai com 2 e RSP-U002, MCP devolve erro de ferramenta RSP-U002
+Status: fixed em `000b863`: `_render.check_selector` valida antes de buscar; CLI sai com 2 e RSP-U002, MCP devolve erro de ferramenta RSP-U002
 
 ### BUG-003: `headers` como texto dá `AttributeError` interno
 
@@ -51,7 +51,7 @@ Passos: `raspador.get("https://ex.com/p", headers="User-Agent: x")`
 Expected: `TypeError` dizendo que `headers` precisa ser um dict.
 Actual: `AttributeError: 'str' object has no attribute 'items'` de dentro de `policy.check_headers`.
 Evidence: test_f01_n3_headers_como_texto_da_erro_claro.
-Status: fixed (árvore de trabalho, commit pendente): `policy.check_headers` levanta TypeError dizendo que headers precisa ser dict
+Status: fixed em `000b863`: `policy.check_headers` levanta TypeError dizendo que headers precisa ser dict
 
 ### BUG-004: `storage_state` inexistente é aceito na construção da sessão de navegador
 
@@ -62,7 +62,7 @@ Passos: `browser.BrowserSession(storage_state="/nao/existe.json")`
 Expected: erro imediato RSP-F004 com o caminho.
 Actual: o objeto é criado sem reclamar; a falha só viria ao abrir o contexto do Chromium.
 Evidence: test_f03_n1_estado_inexistente_falha_na_construcao.
-Status: fixed (árvore de trabalho, commit pendente): `StateFileMissing` (RSP-F004) na construção e em `load_state`
+Status: fixed em `000b863`: `StateFileMissing` (RSP-F004) na construção e em `load_state`
 
 ### BUG-005: filtro inválido nas ferramentas de rede do MCP vira "unexpected exception"
 
@@ -75,7 +75,7 @@ Expected: erro de ferramenta com código.
 Actual: o `ValueError` do `NetworkRecorder.search` do upstream escapa da tradução de erros; o servidor loga
 "raised an unexpected exception" e o modelo recebe só "Error executing tool browser_network_requests".
 Evidence: tests/e2e/test_aceite.py::test_f04_n1_mcp_filtro_de_rede_invalido_e_erro_de_ferramenta (2 variantes).
-Status: fixed (árvore de trabalho, commit pendente): `ValueError` vira ToolError RSP-M005 com o motivo
+Status: fixed em `000b863`: `ValueError` vira ToolError RSP-M005 com o motivo
 
 ## A conferir (não reproduzido)
 
