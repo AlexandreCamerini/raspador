@@ -1,34 +1,35 @@
 # Paridade: raspador vs Scrapling 0.5.1
 
-Data: 2026-11-26. Build: `000b863` + teste de contrato do parsing (`tests/test_parsing_api.py`, não commitado).
+Data: 2026-11-27. Build: `2b5ca1d` (primeira versão em `000b863`; ProxyPool v1 em `d5f9bc9`, C4 em `cfd4bf1`, C5 e testes MCP em `b10a737`).
 Score gerado por `parity.py replica/features.csv`; números abaixo são a saída real, não estimativa.
 
 ## Resumo
 
 | métrica | valor |
 | --- | --- |
-| Overall | 84.2 / 100 (= feature score; não há layout) |
-| Feature score | 84.2 (74 features pontuadas; 10 skip de evasão e 2 de rede/comunidade fora) |
+| Overall | 84.9 / 100 (= feature score; não há layout) |
+| Feature score | 84.9 (74 features pontuadas; 10 skip de evasão e 2 de rede/comunidade fora) |
 | Must-haves | 25 de 25 |
 | Layout score | n/a: biblioteca + CLI + MCP, sem tela. `imgdiff.py` não se aplica |
-| Bugs abertos | S1 0, S2 0 (bugs.md; os 5 da rodada fixed em `000b863`) |
+| Bugs abertos | 0 de qualquer severidade (bugs.md: BUG-001 a 009 fixed; C3, C4, C5 fechados) |
 
 Correção da matriz nesta rodada: três linhas de parsing (TextHandler/AttributesHandler, `find_similar`, geração de
 seletor CSS/XPath) estavam `no` embora funcionem via `raspador.Selector`, que herda o parser do upstream. Agora têm
-teste de contrato e estão `yes`. Efeito: 80.3 → 84.2. Nada foi marcado `yes` sem teste.
+teste de contrato e estão `yes`. Efeito: 80.3 → 84.2; depois o ProxyPool v1 (ProxyRotator `partial`) levou a 84.9. Nada foi marcado `yes` sem teste.
 
 ## Verdict
 
-**Shippable**, com uma condição: a suíte pós-correções (`000b863`) passou aqui com 9 skips (Chromium, porta local,
-Scrapy). A última rodada completa fora do sandbox foi antes das correções. Rodar o gate fora do sandbox antes de
-publicar. "Better than the original" não se aplica ainda: `/replica-entrepreneur` não rodou. O diferencial de
-produto (compliance por construção) já existe, mas não foi validado contra um usuário-alvo.
+**Shippable.** A condição da rodada anterior foi cumprida: o gate completo passou fora do sandbox (Chromium,
+porta local, MCP em stdio contra servidor HTTP real) e o Claude Code real chamou o `raspador mcp` com sucesso
+(`replica/c3-claude-code.sh`). Só o template do Scrapy pula (extra não instalado). Para distribuir a terceiros já
+existem README, LICENSE + NOTICE do Scrapling e CI; falta publicar (PyPI ou repositório) e um crawl real num site
+com permissão. "Better than the original" não se aplica: `/replica-entrepreneur` não rodou.
 
 ## By area, weakest first
 - distribution                   0.0  (1 features)
 - mcp                           30.0  (10 features)
 - integration                   50.0  (1 features)
-- fetch-http                    78.9  (8 features)
+- fetch-http                    84.2  (8 features)
 - spiders                       85.7  (15 features)
 - adaptive                      87.5  (3 features)
 - fetch-browser                 90.9  (12 features)
@@ -39,9 +40,9 @@ produto (compliance por construção) já existe, mas não foi validado contra u
 - quality                      100.0  (1 features)
 
 ## Missing, in build order
-- [should] fetch-http: ProxyRotator: cíclica, aleatória, ponderada, custom, no  ([M4] exposto pela camada; proibido em spiders (upstream troca proxy a cada retry); só proxy fixo por domínio)
 - [should] parsing: Performance de parsing no nível de lxml (barra: benchmarks.md), no  ([M2] exposto pela camada; medir contra o benchmark de 5.000 elementos aninhados)
 - [should] adaptive: Backend de storage plugável (SQLite padrão, thread-safe), partial  ([M2] exposto pela camada; | M2: SQLite do upstream em caminho próprio (adaptive.configure); backend plugável não exposto)
+- [should] fetch-http: ProxyRotator: cíclica, aleatória, ponderada, custom, partial  ([M4] exposto pela camada; proibido em spiders (upstream troca proxy a cada retry); só proxy fixo por domínio | v1: raspador.ProxyPool com afinidade estática por eTLD+1 (mapa ou rendezvous), sem failover; rotação por request e troca por bloqueio fora por política (P006); tests/test_proxy_pool.py)
 - [should] spiders: AutoThrottle com backoff em bloqueio e Retry-After, partial  ([M1] exposto pela camada; | M1: ligado por padrão; sem teste próprio)
 - [should] spiders: Detecção de bloqueio + retries customizáveis, partial  ([M2] exposto pela camada; código novo: is_blocked do upstream só olha status; Retry-After + parar domínio após N bloqueios; sem rotação de proxy | M1: domínio para após N bloqueios seguidos; testado. Falta: Retry-After próprio (hoje só via AutoThrottle do upstream))
 - [should] spiders: Lifecycle hooks: on_start, on_close, on_error, on_scraped_item, partial  ([M3] exposto pela camada; | M3: on_scraped_item testado; on_start/on_close/on_error sem teste próprio)
@@ -63,6 +64,23 @@ produto (compliance por construção) já existe, mas não foi validado contra u
 - [could] mcp: MCP: browser_extract (snapshot com refs, HTML, Markdown, texto, busca por regex), partial  ([M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4 | M4: browser_fetch devolve markdown/html/text sanitizado com seletor; snapshot com refs de elemento não feito)
 - [could] mcp: MCP: network_requests e network_request, partial  ([M4] reimplementado sobre Playwright/SDK mcp, sem StealthySession; should→could: MCP adiado para M4 | M4: browser_network_requests/request sobre o NetworkRecorder; sem teste MCP ponta a ponta com Chromium | id corrigido para network_id (o upstream não grava request_id); contrato fixa a chave)
 - [could] templates: ShopifySpider (produtos públicos, um item por variante), partial  ([M4] exposto pela camada; lê o JSON público da loja; respeitar os ToS da loja | M4: herança; robots da loja testado; extração de produtos sem teste próprio)
+
+Left out on purpose (not scored)
+- Solver de Cloudflare Turnstile/Interstitial (solve_cloudflare): família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- MCP resolvendo CAPTCHA durante a navegação: família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Spoofing de fingerprint do navegador (browserforge, datapoints): família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Ruído de canvas contra fingerprinting: família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Patch de detecção headless e de fingerprints do Playwright (patchright): família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Patch de vazamento de CDP runtime e WebRTC: família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Defesa contra mismatch de timezone: família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Impersonação de fingerprint TLS (impersonate): família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- stealthy_headers (headers falsos coerentes com navegador real): família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Digitação humana com pausas aleatórias usada como camuflagem: família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
+- Ecossistema de patrocinadores (proxies residenciais, APIs de token anti-bot): parcerias comerciais, não é produto
+- Docs em 10 idiomas e comunidade (Discord, ~105 mil estrelas): rede e confiança não se clonam; docs só em PT-BR/EN
+
+Yours, not in the original (not scored)
+- Log de auditoria JSONL de decisões de política (C6)
 
 ## Left out on purpose (not scored)
 - Solver de Cloudflare Turnstile/Interstitial (solve_cloudflare): família de evasão anti-bot: evasão de detecção, normalmente viola os ToS do alvo; fora do escopo
@@ -103,7 +121,7 @@ terceiros.
 
 Custo honesto das diferenças: em sites com anti-bot o raspador simplesmente falha onde o Scrapling passa. É
 intencional, mas quem migrar esperando a mesma taxa de sucesso vai se frustrar; a documentação precisa dizer isso
-na primeira tela.
+na primeira tela (feito: README, seção de abertura).
 
 ## Próximos cinco (por peso no score e custo)
 
@@ -113,9 +131,7 @@ na primeira tela.
 3. **Retry-After próprio + teste do AutoThrottle** (dois should `partial`). Hoje só o AutoThrottle do upstream
    honra Retry-After, e sem teste.
 4. **Backend de storage adaptativo plugável** (should, `partial`). Expor a classe de storage em `adaptive.configure`.
-5. **ProxyRotator: decidir, não construir.** Rotação após bloqueio é evasão e já é proibida em spider (P006). Opções:
-   reclassificar como `skip` com motivo (o score sobe porque sai do denominador) ou expor rotação só para
-   `HttpSession`, sem reação a bloqueio. Recomendo `skip`: rotação sem gatilho de bloqueio tem pouco uso real e
-   abre a porta que a política fecha.
+5. ~~ProxyRotator~~ decidido: `raspador.ProxyPool` v1 com afinidade estática por eTLD+1, sem failover (`partial`);
+   rotação por request e troca por bloqueio seguem proibidas (P006). Próximo candidato no lugar: MCP `screenshot`.
 
 Depois disso, entre os could: MCP `screenshot`, download pelo navegador e Shadow DOM.

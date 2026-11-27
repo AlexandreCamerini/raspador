@@ -137,7 +137,7 @@ def _run_fetch(
             e.code,
             "não foi possível abrir o Chromium.",
             url=url,
-            hint="instale com pip install 'raspador[browser]' e raspador install.",
+            hint="rode raspador install para baixar o Chromium.",
             detail=repr(e.__cause__),
         )
         return
@@ -351,7 +351,7 @@ def fetch_cmd(
     verbose: bool,
     report: str,
 ) -> None:
-    """Abre URL num Chromium (JavaScript renderizado) e grava em OUTPUT. Requer raspador[browser]."""
+    """Abre URL num Chromium (JavaScript renderizado) e grava em OUTPUT. Requer o Chromium (raspador install)."""
     from raspador import browser
 
     ctx = _Ctx(color, verbose, report)

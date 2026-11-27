@@ -58,7 +58,7 @@ class BrowserUnavailable(RuntimeError):
     def __init__(self, cause: Exception) -> None:
         super().__init__(
             f"{self.code}: não foi possível abrir o Chromium ({type(cause).__name__}). "
-            "Instale com `pip install 'raspador[browser]'` e `raspador install`."
+            "Baixe o Chromium com `raspador install`."
         )
 
 

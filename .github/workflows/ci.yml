@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Dependências (lock exato)
+        run: uv sync --locked
+      - name: Lint e formatação
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+      - name: Tipos
+        run: uv run pyright
+      - name: Chromium do Playwright
+        run: uv run playwright install --with-deps chromium
+      - name: Testes (e nenhum de Chromium ou porta local pode pular)
+        # aqui Chromium e porta local funcionam: só o template do Scrapy (extra não instalado) pode pular
+        run: |
+          set -o pipefail
+          uv run pytest -q -rs | tee pytest.log
+          if grep -E "SKIPPED.*(Chromium|porta local)" pytest.log; then
+            echo "testes de navegador/porta local pularam no CI" >&2
+            exit 1
+          fi
+
+  pacote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: uv build
+      - name: Licenças e README dentro do pacote
+        run: |
+          set -euo pipefail
+          whl=$(ls dist/*.whl)
+          python3 - "$whl" <<'PY'
+          import sys, zipfile
+          nomes = zipfile.ZipFile(sys.argv[1]).namelist()
+          for f in ("licenses/LICENSE", "licenses/NOTICE"):
+              assert any(n.endswith(f) for n in nomes), f"{f} fora do wheel"
+          meta = next(n for n in nomes if n.endswith("METADATA"))
+          texto = zipfile.ZipFile(sys.argv[1]).read(meta).decode()
+          assert "# raspador" in texto, "README fora do METADATA"
+          print("ok:", sys.argv[1])
+          PY
+      - name: Instala o wheel limpo e roda a CLI
+        run: |
+          uv venv /tmp/limpo
+          uv pip install --python /tmp/limpo dist/*.whl
+          /tmp/limpo/bin/raspador --version
+      - name: Extra mcp sobe o servidor
+        run: |
+          whl=$(ls dist/*.whl)
+          uv pip install --python /tmp/limpo "${whl}[mcp]"
+          /tmp/limpo/bin/python -c "from raspador.mcp_server import build_server; build_server()"
+          /tmp/limpo/bin/raspador mcp --help

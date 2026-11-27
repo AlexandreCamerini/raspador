@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Raspagem web compliant sobre o Scrapling: robots.txt obrigatório, User-Agent identificado, sem evasão anti-bot."
 requires-python = ">=3.12"
 license = "BSD-3-Clause"
+license-files = ["LICENSE", "NOTICE"]
+readme = "README.md"
 dependencies = [
     "scrapling[fetchers]==0.5.1",
     # page.markdown() e a CLI; scrapling[fetchers] não traz (só os extras rag/ai, que puxam o MCP)

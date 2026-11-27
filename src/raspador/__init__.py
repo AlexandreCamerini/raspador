@@ -11,7 +11,7 @@ from raspador.adaptive import Selector  # noqa: E402
 from raspador.http import async_http_session, delete, get, http_session, post, put  # noqa: E402
 from raspador.policy import PolicyError  # noqa: E402
 from raspador.proxies import ProxyEntry, ProxyPool  # noqa: E402
-from raspador.robots import RobotsDenied  # noqa: E402
+from raspador.robots import RobotsDenied, RobotsUnavailable  # noqa: E402
 from raspador.spiders import Request, Spider  # noqa: E402
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "ProxyPool",
     "Request",
     "RobotsDenied",
+    "RobotsUnavailable",
     "Selector",
     "Spider",
     "__version__",
