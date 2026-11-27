@@ -1,0 +1,70 @@
+name: publicar
+
+# Trusted Publishing (OIDC): nenhum token no repositório. Cada índice precisa de um publisher cadastrado
+# apontando para este repo, este arquivo (publicar.yml) e o environment do job (testpypi / pypi).
+#   manual (workflow_dispatch)  → TestPyPI
+#   tag v*                      → PyPI, só se a versão da tag bater com a do pyproject
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Tag bate com a versão do pacote
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          versao=$(uv version --short)
+          [[ "${GITHUB_REF_NAME#v}" == "$versao" ]] || { echo "tag $GITHUB_REF_NAME ≠ versão $versao" >&2; exit 1; }
+      - name: Build
+        run: uv build
+      - name: Metadados válidos para o índice
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/raspador-compliant/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/raspador-compliant/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

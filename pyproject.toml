@@ -1,5 +1,5 @@
 [project]
-name = "raspador"
+name = "raspador-compliant"
 version = "0.1.0"
 description = "Raspagem web compliant sobre o Scrapling: robots.txt obrigatório, User-Agent identificado, sem evasão anti-bot."
 requires-python = ">=3.12"
