@@ -9,3 +9,4 @@ dist/
 replica/commit-msg-*.txt
 .coverage
 htmlcov/
+examples/saida/

@@ -179,7 +179,7 @@ proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; 
   vistos como internos (corrigido em `_is_internal`), e nenhuma saída para intranet (`allow_private`, repassado pelo
   MCP). Limite: DNS rebinding e redirect de subrecurso (o Playwright só roteia a primeira URL). Testes:
   tests/test_lacunas_politica.py.
-- Status: fixed (commit pendente)
+- Status: fixed (c9431c4)
 
 ### BUG-011: credencial por request saía pelo proxy do pool
 
@@ -195,7 +195,7 @@ proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; 
   checada, e `check_headers` recusa nome fora do token HTTP (P003) em qualquer modo. Mensagens `RSP-U001`/`N002`
   mascaram usuário e senha da URL. Limite: token na query string. Testes:
   tests/test_lacunas_politica.py.
-- Status: fixed (commit pendente)
+- Status: fixed (c9431c4)
 
 ## A conferir (não reproduzido)
 
@@ -204,6 +204,8 @@ proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; 
 - C4: fechado. Credencial do proxy no navegador vai em `username`/`password` (BUG-006); verificado com Chromium real atrás de proxy local com Basic auth (`test_chromium_real_autentica_no_proxy_e_a_senha_nao_vaza` e o caso de senha errada em tests/test_browser.py), fora do sandbox.
 - C5: corrigido em `b10a737`. Falha de rede, proxy ou 5xx no robots.txt agora é `RobotsUnavailable` (RSP-R002, subclasse de `RobotsDenied`: o site continua fechado), com o motivo (nome da exceção, sem a mensagem do curl, que pode trazer credencial, ou `HTTP 5xx`). CLI sai com 5 (rede) e dica de rede/proxy; MCP diz que o site não negou nada; spider audita `robots_unavailable` com `code` e `reason`. 401/403 seguem RSP-R001. Testes: tests/test_robots_indisponivel.py e o caso de porta fechada em tests/test_mcp_stdio.py.
 - C3: fechado. tests/test_mcp_stdio.py cobre o subprocesso `raspador mcp` em stdio contra servidor HTTP real (make_request, robots negado, sessão HTTP, recusa de localhost sem `--allow-private`, RSP-R002 com rede fora). Rodada com Claude Code real (`claude -p --strict-mcp-config --mcp-config ...`, haiku) chamou `make_request` em https://example.com e descreveu a página corretamente; reprodução: replica/c3-claude-code.sh. Pegadinha registrada: o example.com atual não tem `<h1>`, e `--allowedTools` variádico engole prompt posicional (mandar pelo stdin).
+
+- C6: crawl real fechado (2026-11-27). examples/citacoes.py em https://quotes.toscrape.com (site de treino de scraping): robots.txt consultado, 3 páginas, 30 itens com texto, autor e tags, nenhum campo vazio, auditoria sem evento (o log só grava recusa e falha). No sandbox o DNS cai e o run termina em RSP-R002 sem buscar página, como esperado. A conferir (S4, cosmético): nesse caso o log do Scrapling diz "Request disallowed by robots.txt", embora a causa seja rede; a auditoria registra o motivo certo.
 
 ## Resumo da rodada (2026-11-26)
 
