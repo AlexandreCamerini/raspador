@@ -14,14 +14,20 @@
   conflito de import. Improvável (o antigo está parado há 13 anos), mas fica aqui.
 - Decisão tomada sem pergunta (sessão autônoma). Revisar antes do upload ao PyPI.
 
-## Pendente: publicação
+## 2026-11-27: TestPyPI publicado
 
-Publicar é irreversível (um índice não aceita reenviar a mesma versão), então não foi executado:
+- `raspador-compliant` 0.1.0 publicado no TestPyPI pela run 46026659979 (Trusted Publishing, sem token).
+- A primeira tentativa falhou com `invalid-publisher` porque não havia pending publisher na conta do TestPyPI.
+  O publisher foi cadastrado em 2026-11-27 (projeto `raspador-compliant`, `AlexandreCamerini/raspador`,
+  `publicar.yml`, environment `testpypi`) e a run seguinte passou. O environment do GitHub foi criado sozinho.
+- Verificado num venv limpo com
+  `uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/
+  --index-strategy unsafe-best-match raspador-compliant==0.1.0`: `raspador --version` retorna 0.1.0 e
+  `import raspador` resolve para o site-packages do venv.
+- `unsafe-best-match` só se usa neste teste. O TestPyPI aceita upload de qualquer pessoa, então uma dependência
+  pode vir de lá. Isso não acontece com quem instala pelo PyPI real.
 
-1. No TestPyPI (conta do dono): Publishing → pending publisher com projeto `raspador-compliant`, owner
-   `AlexandreCamerini`, repo `raspador`, workflow `publicar.yml`, environment `testpypi`.
-2. No GitHub: criar o environment `testpypi` (Settings → Environments).
-3. Push deste commit e `gh workflow run publicar.yml`.
-4. Verificar: `uv venv /tmp/tp && uv pip install --python /tmp/tp --index-url https://test.pypi.org/simple/
-   --extra-index-url https://pypi.org/simple/ raspador-compliant && /tmp/tp/bin/raspador --version`.
-5. PyPI real: mesmo cadastro com environment `pypi`, depois `git tag v0.1.0 && git push origin v0.1.0`.
+## Pendente: PyPI real (irreversível)
+
+1. Em pypi.org (a conta é separada da do TestPyPI): pending publisher com os mesmos campos e environment `pypi`.
+2. `git tag v0.1.0 && git push origin v0.1.0`. O job confere se a tag bate com a versão do pyproject.
