@@ -23,12 +23,19 @@ recusado) porque o upstream repassa ao curl qualquer opção que não conhece.
 
 ## Instalação
 
-Requer Python 3.12 ou mais novo. O pacote ainda não está no PyPI: instale a partir do checkout.
+Requer Python 3.12 ou mais novo. No PyPI o pacote se chama `raspador-compliant`, porque o nome `raspador` já
+pertence a outro projeto. O import e o comando continuam sendo `raspador`.
 
 ```bash
-uv tool install ".[mcp]"      # CLI + servidor MCP (inclui o navegador)
-raspador install              # baixa o Chromium; só é necessário para fetch/navegador
+pip install raspador-compliant              # biblioteca + CLI
+pip install "raspador-compliant[mcp]"       # + servidor MCP
+raspador install                            # baixa o Chromium; só é necessário para fetch/navegador
 ```
+
+Para usar só a CLI, isolada do resto do sistema: `uv tool install "raspador-compliant[mcp]"` (ou `pipx install`).
+
+> Não instale `raspador-compliant` no mesmo ambiente que o pacote `raspador` do PyPI (outro projeto, parado desde
+> 2013): os dois criam o módulo `raspador` e um sobrescreve o outro.
 
 | Extra | O que traz |
 |---|---|
@@ -36,7 +43,8 @@ raspador install              # baixa o Chromium; só é necessário para fetch/
 | `browser` | fixa o Playwright na série 1.64, a mesma revisão de Chromium do upstream |
 | `mcp` | SDK do MCP para o `raspador mcp`, com o mesmo pin do Playwright |
 
-Para usar como biblioteca num projeto: `uv add /caminho/para/raspador` (ou `pip install -e /caminho/para/raspador`).
+Para usar como biblioteca num projeto: `uv add raspador-compliant`. Para trabalhar no código, veja
+[Desenvolvimento](#desenvolvimento).
 
 ## Uso rápido
 
