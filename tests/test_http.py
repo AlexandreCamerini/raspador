@@ -25,7 +25,7 @@ localnet = pytest.mark.skipif(not _pode_abrir_porta_local(), reason="sandbox blo
 def test_sessao_de_spider_nasce_compliant():
     sessao = raspador.http.spider_session(contact="mailto:eu@exemplo.com")
     check_session(sessao)
-    assert sessao._default_headers["User-Agent"] == "raspador/0.1.0 (+mailto:eu@exemplo.com)"
+    assert sessao._default_headers["User-Agent"] == f"raspador/{raspador.__version__} (+mailto:eu@exemplo.com)"
 
 
 def test_fabrica_rejeita_opcao_de_evasao_na_criacao():
@@ -100,7 +100,7 @@ def test_get_avulso_ponta_a_ponta_offline_identifica_e_extrai(monkeypatch):
     assert page.css(".q .t::text").getall() == ["um", "dois"]
     assert enviado["impersonate"] is None
     headers = {k.lower(): v for k, v in enviado["headers"].items()}
-    assert headers["user-agent"] == "raspador/0.1.0 (+mailto:eu@exemplo.com)"
+    assert headers["user-agent"] == f"raspador/{raspador.__version__} (+mailto:eu@exemplo.com)"
     assert not any(k.startswith(("sec-ch-ua", "sec-fetch-")) for k in headers)
     assert "referer" not in headers
 

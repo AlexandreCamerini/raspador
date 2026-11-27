@@ -18,7 +18,7 @@ from playwright.sync_api import Error as PlaywrightError  # sempre presente via 
 
 from raspador import _ui, http
 from raspador._redact import redact
-from raspador._render import InvalidSelector, check_selector, format_for_path, render
+from raspador._render import Format, InvalidSelector, check_selector, format_for_path, render
 from raspador.browser import BrowserUnavailable
 from raspador.policy import InvalidProxy, PolicyError
 from raspador.robots import RobotsDenied, RobotsUnavailable
@@ -92,7 +92,13 @@ class _Ctx:
 
 
 def _run_fetch(
-    ctx: _Ctx, url: str, output: str, css_selector: str | None, ai_targeted: bool, do_fetch: Callable[[], Any]
+    ctx: _Ctx,
+    url: str,
+    output: str,
+    css_selector: str | None,
+    ai_targeted: bool,
+    do_fetch: Callable[[], Any],
+    stdout_format: Format = "text",
 ) -> None:
     """Busca, trata erros e grava a saída; comum a get/post/put/delete e fetch (navegador)."""
     try:
@@ -176,7 +182,8 @@ def _run_fetch(
             hint=hint,
         )
         return
-    content = render(page, format_for_path(output), css_selector, sanitize=ai_targeted)
+    fmt = stdout_format if output == "-" else format_for_path(output)
+    content = render(page, fmt, css_selector, sanitize=ai_targeted)
     empty = bool(css_selector) and not content.strip()
     try:
         if output == "-":
@@ -258,7 +265,7 @@ def _common_options(with_body: bool):
     def decorate(f):
         opts = [
             click.argument("url"),
-            click.argument("output"),
+            click.argument("output", required=False, default="-"),
             click.option("-s", "--css-selector", help="Extrai só o que casar com o seletor CSS (todos os matches)."),
             click.option("-H", "--header", multiple=True, help="Header 'Nome: valor' (pode repetir)."),
             click.option("--cookies", help="Cookies 'a=1; b=2'."),
@@ -296,29 +303,65 @@ def _common_options(with_body: bool):
     return decorate
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"], "max_content_width": 80})
-@click.version_option(package_name="raspador")
-def main() -> None:
+@click.group(
+    context_settings={"help_option_names": ["-h", "--help"], "max_content_width": 80}, invoke_without_command=True
+)
+@click.version_option(package_name="raspador-compliant")
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """Raspagem web que respeita o site: robots.txt sempre, User-Agent identificado, sem evasão anti-bot.
 
     \b
     Exemplos:
-      raspador get https://exemplo.com.br/noticia noticia.md
-      raspador get https://exemplo.com.br/lista - -s "article h2"
+      raspador ler https://quotes.toscrape.com/                 a página, legível, na tela
+      raspador ler https://quotes.toscrape.com/ -o pagina.md    grava num arquivo
+      raspador ler https://quotes.toscrape.com/ -s "span.text"  só o trecho que interessa
+      raspador ler https://quotes.toscrape.com/js/ --js         páginas que só aparecem com JavaScript
 
+    \b
+    Para usar conversando com o Claude: raspador mcp (veja o README).
     Política: o raspador recusa opções de disfarce e explica o motivo (códigos RSP-P...).
     """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit(0)
 
 
 for _method in ("get", "post", "put", "delete"):
-    main.command(name=_method, help=f"{_method.upper()} em URL e grava em OUTPUT (.md, .html ou texto; '-' = stdout).")(
-        _common_options(with_body=_method in {"post", "put"})(_fetch_command(_method))
-    )
+    main.command(
+        name=_method,
+        help=f"{_method.upper()} em URL e grava em OUTPUT (.md, .html ou texto; '-' ou vazio = tela).",
+        hidden=_method != "get",  # continuam funcionando; saem da ajuda principal para não assustar
+    )(_common_options(with_body=_method in {"post", "put"})(_fetch_command(_method)))
+
+
+@main.command(name="ler")
+@click.argument("url")
+@click.option("-o", "--output", default="-", help="Grava num arquivo (.md, .html ou .txt) em vez de mostrar na tela.")
+@click.option("-s", "--css-selector", help='Só o que casar com o seletor CSS, ex.: "article h2".')
+@click.option("--js", is_flag=True, help="Abre num navegador, para páginas montadas por JavaScript.")
+@click.option("--contact", help="E-mail ou URL que vai no User-Agent para o dono do site falar com você.")
+@click.option("-v", "--verbose", is_flag=True, help="Mostra a causa técnica dos erros.")
+def ler_cmd(url: str, output: str, css_selector: str | None, js: bool, contact: str | None, verbose: bool) -> None:
+    """Lê uma página e mostra o conteúdo legível (Markdown) na tela, ou grava com -o."""
+    ctx = _Ctx("auto", verbose, "text")
+    logging.getLogger("scrapling").setLevel(logging.DEBUG if verbose else logging.WARNING)
+    if js:
+        from raspador import browser
+
+        def do_fetch() -> Any:
+            return browser.fetch(url, contact=contact)
+    else:
+
+        def do_fetch() -> Any:
+            return http.get(url, contact=contact)
+
+    _run_fetch(ctx, url, output, css_selector, False, do_fetch, stdout_format="markdown")
 
 
 @main.command(name="fetch")
 @click.argument("url")
-@click.argument("output")
+@click.argument("output", required=False, default="-")
 @click.option("-s", "--css-selector", help="Extrai só o que casar com o seletor CSS (todos os matches).")
 @click.option("--wait-selector", help="Espera este seletor aparecer antes de ler a página.")
 @click.option("--network-idle", is_flag=True, help="Espera a rede ficar ociosa.")

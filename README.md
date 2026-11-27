@@ -50,15 +50,27 @@ Para usar como biblioteca num projeto: `uv add raspador-compliant`. Para trabalh
 
 ### CLI
 
+`raspador` sem nada mostra exemplos. O comando do dia a dia é `ler`:
+
 ```bash
-raspador get https://exemplo.com.br/noticia noticia.md          # markdown
-raspador get https://exemplo.com.br/lista - -s "article h2"      # só o seletor, no stdout
-raspador fetch https://exemplo.com.br/app pagina.html           # Chromium, com JavaScript
-raspador get https://exemplo.com.br/ x.md --contact mailto:voce@exemplo.com
+raspador ler https://quotes.toscrape.com/                  # a página, legível, na tela
+raspador ler https://quotes.toscrape.com/ -o pagina.md     # grava num arquivo
+raspador ler https://quotes.toscrape.com/ -s "span.text"   # só o trecho que interessa (seletor CSS)
+raspador ler https://quotes.toscrape.com/js/ --js          # página montada por JavaScript (raspador install antes)
 ```
 
-O formato de saída vem da extensão: `.md` gera markdown, `.html` gera HTML e qualquer outra extensão gera texto.
-`-` escreve texto no stdout. `--report json` imprime um objeto de resultado, para scripts.
+Na tela, `ler` mostra Markdown: títulos, listas e links continuam reconhecíveis. Com `-o`, o formato vem da
+extensão: `.md` gera Markdown, `.html` gera HTML, qualquer outra gera texto.
+
+Para scripts e casos avançados (headers, cookies, proxy, `--report json`) existem `get` e `fetch`, com o arquivo de
+saída opcional (sem ele, texto na tela):
+
+```bash
+raspador get https://exemplo.com.br/noticia noticia.md --contact mailto:voce@exemplo.com
+raspador fetch https://exemplo.com.br/app pagina.html --wait-selector "#conteudo"
+```
+
+`post`, `put` e `delete` também existem, mas ficam fora da ajuda principal (`raspador post --help`).
 
 Para usar proxy com credencial, passe a URL pela variável `RASPADOR_PROXY`, e não por `--proxy`, para que a senha
 não fique no histórico do shell nem no `ps`.
@@ -175,9 +187,16 @@ nos logs do `scrapling` e do `raspador`, na auditoria, nas estatísticas e no ch
 
 ### MCP (Claude Code, Claude Desktop)
 
+É o jeito mais simples de usar: você pede em português e o Claude usa o raspador por baixo, com as mesmas regras.
+
 ```bash
-claude mcp add raspador -- raspador mcp --contact mailto:voce@exemplo.com
+uv tool install "raspador-compliant[mcp]"
+claude mcp add --scope user raspador -- raspador mcp --contact mailto:voce@exemplo.com
 ```
+
+Depois, numa conversa do Claude Code: *"Usa o raspador para pegar as citações e os autores das 3 primeiras páginas de
+quotes.toscrape.com e monta uma tabela."* Se o site negar no robots.txt, o Claude recebe o código `RSP-R001` e
+explica em vez de insistir.
 
 O servidor oferece estas ferramentas, todas sem evasão: `make_request`, `open_request_session`,
 `session_make_request`, `browser_open`, `browser_fetch`, `browser_network_requests`, `browser_network_request`,
