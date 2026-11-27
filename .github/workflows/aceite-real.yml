@@ -1,0 +1,48 @@
+name: aceite-real
+
+# Manual: depende de sites de terceiro (toscrape.com, httpbin.org), que mudam e caem. Não entra no gate de push.
+on:
+  workflow_dispatch:
+    inputs:
+      cenarios:
+        description: "Cenários separados por espaço (vazio = todos). Ex.: A1 A3"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aceite-real
+  cancel-in-progress: false
+
+jobs:
+  aceite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Dependências (lock exato)
+        run: uv sync --locked
+      - name: Chromium do Playwright
+        run: uv run playwright install --with-deps chromium
+      - name: Aceite
+        env:
+          ACEITE_EXIGE_NAVEGADOR: "1" # aqui o Chromium existe: pular A2 seria esconder falha
+          ACEITE_SAIDA: aceite-saida
+          CENARIOS: ${{ inputs.cenarios }}
+        # sem `claude` no runner, A7 sai SKIP; exit 2 (só INCON) também falha o job, com o relatório anexado
+        run: |
+          # shellcheck disable=SC2086
+          uv run python replica/aceite_real.py $CENARIOS
+      - name: Relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aceite-real-relatorio
+          path: aceite-saida/relatorio.json
+          if-no-files-found: warn
