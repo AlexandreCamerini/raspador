@@ -166,7 +166,7 @@ proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; 
 
 - C1: (resolvido pelo BUG-004) o erro de launch com `storage_state` inexistente não acontece mais: o caminho é checado antes.
 - C2: `timeout` negativo ou zero é repassado ao curl sem validação. Comportamento do curl não verificado.
-- C4: (resolvido no BUG-006) credencial do proxy no navegador agora vai em `username`/`password`. Falta o teste com Chromium e proxy autenticado reais.
+- C4: fechado. Credencial do proxy no navegador vai em `username`/`password` (BUG-006); verificado com Chromium real atrás de proxy local com Basic auth (`test_chromium_real_autentica_no_proxy_e_a_senha_nao_vaza` e o caso de senha errada em tests/test_browser.py), fora do sandbox.
 - C5: proxy morto aparece como RSP-R001 ("robots.txt não permite"), porque falha na busca do robots vira negado e fica no cache pelo TTL de erro. Visto na reprodução do BUG-006; mensagem enganosa, sem vazamento.
 - C3: M3 do plano: `raspador mcp` configurado num Claude Code real ainda não foi testado à mão.
 

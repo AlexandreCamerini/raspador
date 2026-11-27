@@ -318,3 +318,128 @@ def test_record_requests_guarda_a_api_por_tras_da_pagina(site):
         api = b.network.search(url_pattern=r"/api/dados$")
     assert r.css("#out::text").get() == "café"
     assert len(api) == 1 and api[0].json() == {"nome": "café"}
+
+
+# ---- C4: Chromium real atrás de proxy com Basic auth ----
+
+
+def _pode_abrir_porta_local() -> bool:
+    import socket
+
+    try:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+        return True
+    except OSError:
+        return False
+
+
+localnet = pytest.mark.skipif(not _pode_abrir_porta_local(), reason="sandbox bloqueia porta local (EPERM)")
+
+SENHA_PROXY = "s3nh@:/do-proxy"  # "@", ":" e "/" crus obrigam o percent-encoding e o unquote
+
+
+class _ProxyComSenha:
+    """Proxy HTTP de encaminhamento mínimo: 407 sem Proxy-Authorization correto; com ela, responde a página."""
+
+    def __init__(self, usuario: str, senha: str) -> None:
+        import base64
+        import http.server
+        import threading
+
+        esperado = "Basic " + base64.b64encode(f"{usuario}:{senha}".encode()).decode()
+        self.vistos: list[dict] = []
+        dono = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _autenticado(self) -> bool:
+                auth = self.headers.get("Proxy-Authorization")
+                dono.vistos.append({"metodo": self.command, "alvo": self.path, "ok": auth == esperado})
+                if auth == esperado:
+                    return True
+                self.send_response(407)
+                self.send_header("Proxy-Authenticate", 'Basic realm="raspador-teste"')
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return False
+
+            def do_CONNECT(self):  # upgrade automático para HTTPS: recusa o túnel e o Chromium volta ao http
+                if self._autenticado():
+                    self.send_response(502)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+
+            def do_GET(self):
+                if not self._autenticado():
+                    return
+                corpo = b"<html><body><h1 id='via'>pelo proxy</h1></body></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(corpo)))
+                self.end_headers()
+                self.wfile.write(corpo)
+
+            def log_message(self, format, *args):  # noqa: A002 (nome da assinatura da base)
+                pass
+
+        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.porta = self._server.server_address[1]
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+
+    def url(self, usuario: str, senha: str) -> str:
+        from urllib.parse import quote
+
+        return f"http://{quote(usuario, safe='')}:{quote(senha, safe='')}@127.0.0.1:{self.porta}"
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+
+@pytest.fixture
+def proxy_com_senha():
+    p = _ProxyComSenha("cliente-br", SENHA_PROXY)
+    yield p
+    p.close()
+
+
+@chromium
+@localnet
+def test_chromium_real_autentica_no_proxy_e_a_senha_nao_vaza(site, proxy_com_senha, caplog, capfd):
+    import logging
+
+    site({"http://ex.com/robots.txt": ROBOTS})  # robots.txt vai pelo curl (falso aqui); a página, pelo Chromium
+    with (
+        caplog.at_level(logging.DEBUG),
+        browser.BrowserSession(proxy=proxy_com_senha.url("cliente-br", SENHA_PROXY)) as b,
+    ):
+        r = b.fetch("http://ex.com/p")
+    assert r.status == 200
+    assert r.css("#via::text").get() == "pelo proxy"
+    gets = [v for v in proxy_com_senha.vistos if v["metodo"] == "GET"]
+    assert any(v["alvo"] == "http://ex.com/p" and v["ok"] for v in gets)  # passou pelo proxy, autenticado
+    streams = capfd.readouterr()
+    for texto in (caplog.text, streams.out, streams.err, repr(r.meta), repr(r.headers)):
+        assert SENHA_PROXY not in texto and "s3nh%40" not in texto
+
+
+@chromium
+@localnet
+def test_chromium_com_senha_errada_nao_abre_a_pagina_nem_mostra_a_senha(site, proxy_com_senha, caplog, capfd):
+    import logging
+
+    site({"http://ex.com/robots.txt": ROBOTS})
+    errada = "senha-errada-123"
+    erro = ""
+    with caplog.at_level(logging.DEBUG), browser.BrowserSession(proxy=proxy_com_senha.url("cliente-br", errada)) as b:
+        try:
+            r = b.fetch("http://ex.com/p", timeout=10_000)
+            assert r.status == 407 and r.css("#via").get() is None
+        except AssertionError:
+            raise
+        except Exception as e:  # erro de navegação também serve: o que importa é não passar e não vazar
+            erro = str(e)
+    assert not any(v["ok"] for v in proxy_com_senha.vistos)
+    streams = capfd.readouterr()
+    for texto in (caplog.text, streams.out, streams.err, erro):
+        assert errada not in texto
