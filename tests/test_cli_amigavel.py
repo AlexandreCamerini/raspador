@@ -31,9 +31,24 @@ def test_ler_imprime_a_pagina_legivel_na_tela(run, pagina):
     r = run("ler", "https://ex.com/p")
     assert r.exit_code == 0, r.stderr
     assert "Título\n===" in r.stdout  # Markdown (título sublinhado): estrutura e links continuam legíveis
-    assert "[link](/x)" in r.stdout
+    assert "[link](https://ex.com/x)" in r.stdout
     assert "dois" in r.stdout
     assert r.stderr == ""
+
+
+def test_ler_deixa_os_links_absolutos(run, site):
+    html = (
+        "<html><body><a href='/autor/x'>autor</a> <a href='pag/2'>rel</a> <a href='https://outro.com/y'>fora</a>"
+        " <a href='mailto:a@b.com'>mail</a> <img src='/i.png' alt='img'></body></html>"
+    )
+    site({"https://ex.com/robots.txt": (404, "", {}), "https://ex.com/dir/p": (200, html, {})})
+    r = run("ler", "https://ex.com/dir/p")
+    assert r.exit_code == 0, r.stderr
+    assert "[autor](https://ex.com/autor/x)" in r.stdout
+    assert "[rel](https://ex.com/dir/pag/2)" in r.stdout
+    assert "[fora](https://outro.com/y)" in r.stdout
+    assert "[mail](mailto:a@b.com)" in r.stdout
+    assert "![img](https://ex.com/i.png)" in r.stdout
 
 
 def test_ler_com_o_grava_no_arquivo_e_avisa(run, pagina, tmp_path):

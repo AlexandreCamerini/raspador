@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
+from urllib.parse import urljoin
 
 from scrapling.core.shell import Convertor
 
 Format = Literal["markdown", "html", "text"]
+
+# Alvo de link/imagem Markdown: "](alvo" até espaço (título opcional) ou ")".
+_MD_TARGET = re.compile(r"(\]\()([^)\s]+)")
+
+
+def absolutize_markdown(markdown: str, base_url: str) -> str:
+    """Links e imagens relativos viram absolutos: fora do site (arquivo, conversa com o Claude) continuam úteis.
+    Absolutos, mailto: e afins passam intactos (urljoin preserva o que já tem esquema)."""
+    if not base_url:
+        return markdown
+    return _MD_TARGET.sub(lambda m: m.group(1) + urljoin(base_url, m.group(2)), markdown)
 
 
 class InvalidSelector(ValueError):
@@ -45,7 +58,8 @@ def render(page: Any, fmt: Format, selector: str | None = None, sanitize: bool =
     """`markdown` sempre remove o conteúdo oculto (upstream); `sanitize` faz o mesmo em html e texto e, no
     Markdown, fica só com o <body>."""
     if fmt == "markdown":
-        return page.markdown(css_selector=selector, main_content_only=sanitize)
+        md = page.markdown(css_selector=selector, main_content_only=sanitize)
+        return absolutize_markdown(md, str(getattr(page, "url", "") or ""))
     base = Convertor._sanitize_for_ai(Convertor._strip_noise_tags(page)) if sanitize else page
     nodes = base.css(selector) if selector else [base]
     if fmt == "html":
