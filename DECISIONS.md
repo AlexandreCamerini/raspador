@@ -27,7 +27,13 @@
 - `unsafe-best-match` só se usa neste teste. O TestPyPI aceita upload de qualquer pessoa, então uma dependência
   pode vir de lá. Isso não acontece com quem instala pelo PyPI real.
 
-## Pendente: PyPI real (irreversível)
+## 2026-11-27: PyPI publicado
 
-1. Em pypi.org (a conta é separada da do TestPyPI): pending publisher com os mesmos campos e environment `pypi`.
-2. `git tag v0.1.0 && git push origin v0.1.0`. O job confere se a tag bate com a versão do pyproject.
+- `raspador-compliant` 0.1.0 publicado em https://pypi.org/project/raspador-compliant/ pela run 46049021655,
+  disparada pela tag `v0.1.0`.
+- As duas primeiras tentativas falharam com `invalid-publisher`: a conta do pypi.org não tinha pending publisher.
+  Ele foi cadastrado com environment `pypi` e o job passou na mesma tag.
+- Verificado num venv limpo, só com o índice padrão: `uv pip install raspador-compliant==0.1.0`,
+  `raspador --version` retorna 0.1.0.
+- Próxima versão: subir `version` no pyproject e em `__init__.py`, depois criar a tag `vX.Y.Z`. O publisher do
+  PyPI já está ativo, então não precisa cadastrar de novo.
