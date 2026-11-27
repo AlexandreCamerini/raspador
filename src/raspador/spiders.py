@@ -57,7 +57,7 @@ from raspador.policy import (
     check_spider_class,
 )
 from raspador.proxies import ProxyPool, entry_url
-from raspador.robots import RobotsDenied
+from raspador.robots import RobotsDenied, RobotsUnavailable
 
 __all__ = [
     "ContentSpider",
@@ -101,6 +101,7 @@ class RaspadorRobots(RobotsTxtManager):
     def __init__(self, fetch_fn: Any, is_offsite: Any = None) -> None:
         super().__init__(fetch_fn)
         self._fetched_at: dict[str, float] = {}
+        self._failures: dict[str, str] = {}  # domínio -> motivo, enquanto o robots.txt não pôde ser lido
         self._is_offsite = is_offsite or (lambda url: False)
         self.on_denied: Any = None
 
@@ -124,13 +125,20 @@ class RaspadorRobots(RobotsTxtManager):
     async def _fetch_parser(self, scheme: str, domain: str, sid: str) -> Protego:
         robots_url = f"{scheme or 'https'}://{domain}/robots.txt"
         status: int | None = None
+        erro: BaseException | None = None
         try:
             response = await self._fetch_fn(robots_url, sid)
             status = response.status
             parser = robots_rules.parse(robots_rules.robots_content(status, response.body, response.encoding))
-        except Exception:
+        except Exception as e:
+            erro = e
             parser = robots_rules.parse(robots_rules.robots_content(None, b""))
         self._cache[domain] = parser
+        reason = robots_rules.failure_reason(status, erro)
+        if reason:
+            self._failures[domain] = reason
+        else:
+            self._failures.pop(domain, None)
         # o cache do upstream não tem TTL; aqui a falha expira em minutos
         ttl = robots_rules.ttl_for(status)
         self._fetched_at[domain] = time.monotonic() - (robots_rules.ROBOTS_TTL_SECONDS - ttl)
@@ -140,8 +148,16 @@ class RaspadorRobots(RobotsTxtManager):
         parser = await self._get_parser(url, sid)
         allowed = parser.can_fetch(url, robots_rules.ROBOTS_TOKEN)
         if not allowed and self.on_denied:
-            self.on_denied(url)
+            self.on_denied(url, self.failure_for(url))
         return allowed
+
+    def failure_for(self, url: str) -> str | None:
+        """Motivo de o robots.txt do domínio não ter sido lido (rede, proxy, 5xx); None se a regra é do site."""
+        return self._failures.get(urlsplit(url).netloc)
+
+    def denial(self, url: str) -> RobotsDenied:
+        reason = self.failure_for(url)
+        return RobotsUnavailable(url, reason) if reason else RobotsDenied(url)
 
     async def get_delay_directives(self, url: str, sid: str):
         parser = await self._get_parser(url, sid)
@@ -232,6 +248,14 @@ class GuardedSessionManager(SessionManager):
             session.__class__ = _PinnedFetcherSession  # trust_env=False também na sessão crua do usuário
         return super().add(session_id, session, default=default, lazy=lazy)
 
+    def _audit_robots(self, url: str, reason: str | None) -> None:
+        if reason:
+            self._spider._audit.record(
+                "robots_unavailable", url=url, domain=_host(url), code=RobotsUnavailable.code, reason=reason
+            )
+        else:
+            self._spider._audit.record("robots_denied", url=url, domain=_host(url))
+
     def _is_browser(self, sid: str | None) -> bool:
         if (sid or "").startswith("proxy:"):
             return False  # sids do pool são sempre HTTP, mesmo de uma entrada que não existe mais (é re-roteado)
@@ -251,7 +275,7 @@ class GuardedSessionManager(SessionManager):
         engine = getattr(self._spider, "_engine", None)
         if engine is not None and getattr(engine, "_robots_manager", None) is not None:
             self._robots = RaspadorRobots(self._fetch_robots, is_offsite=self._is_offsite)
-            self._robots.on_denied = lambda url: self._spider._audit.record("robots_denied", url=url, domain=_host(url))
+            self._robots.on_denied = self._audit_robots
             engine._robots_manager = self._robots
 
     async def _fetch_robots(self, url: str, sid: str):
@@ -352,7 +376,7 @@ class GuardedSessionManager(SessionManager):
             ):
                 break  # credencial da sessão não pode ser retirada por salto: não segue
             if check_robots and self._robots and not await self._robots.can_fetch(target, request.sid):
-                raise RobotsDenied(target)
+                raise self._robots.denial(target)
             kwargs = dict(request._session_kwargs)
             if cross_host:
                 kwargs = strip_credentials(kwargs)

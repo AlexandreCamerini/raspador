@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 EVENTS = frozenset(
     {
         "robots_denied",
+        "robots_unavailable",
         "policy_error",
         "policy_override",
         "domain_stopped",

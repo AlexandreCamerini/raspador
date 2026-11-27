@@ -8,7 +8,7 @@ from scrapling.engines.toolbelt.custom import Response
 
 
 class SiteFalso:
-    def __init__(self, pages: dict[str, tuple[int, str | bytes, dict]]):
+    def __init__(self, pages: dict[str, tuple[int, str | bytes, dict] | BaseException]):
         self.pages = pages
         self.requests: list[dict] = []
 
@@ -17,7 +17,10 @@ class SiteFalso:
         merge = dict(kwargs) | ({"stealth": stealth} if stealth is not None else {})
         final = client._merge_request_args(**merge)
         self.requests.append({"url": url, "final": final, "method": method})
-        status, body, headers = self.pages.get(url, (404, "nada", {}))
+        pagina = self.pages.get(url, (404, "nada", {}))
+        if isinstance(pagina, BaseException):
+            raise pagina  # falha de rede/proxy no transporte
+        status, body, headers = pagina
         body = body.encode() if isinstance(body, str) else body
         selector_config = kwargs.get("selector_config") or client.selector_config or {}
         # Como o curl_cffi: o encoding vem do Content-Type (mesma função que o upstream usa no navegador)

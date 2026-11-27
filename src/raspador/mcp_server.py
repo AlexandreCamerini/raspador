@@ -27,7 +27,7 @@ from raspador import http
 from raspador._render import Format, InvalidSelector, check_selector, render
 from raspador.browser import AsyncBrowserSession, BrowserUnavailable
 from raspador.policy import PolicyError
-from raspador.robots import RobotsDenied
+from raspador.robots import RobotsDenied, RobotsUnavailable
 
 TOOL_NAMES = (
     "make_request",
@@ -78,6 +78,8 @@ async def _guarded(call: Callable[[], Awaitable[Any]]) -> Any:
         return await call()
     except PolicyError as e:
         raise ToolError(f"{e}\n  não há contorno: esta opção não existe no raspador.") from e
+    except RobotsUnavailable as e:
+        raise ToolError(f"{e} Confira a rede e o proxy do servidor MCP; o site não negou nada.") from e
     except RobotsDenied as e:
         raise ToolError(f"{e} Não há contorno: o raspador sempre respeita o robots.txt.") from e
     except (http.InvalidURL, InvalidSelector, http.RedirectBlocked, http.ResponseTooLarge, BrowserUnavailable) as e:

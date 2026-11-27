@@ -167,8 +167,8 @@ proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; 
 - C1: (resolvido pelo BUG-004) o erro de launch com `storage_state` inexistente não acontece mais: o caminho é checado antes.
 - C2: `timeout` negativo ou zero é repassado ao curl sem validação. Comportamento do curl não verificado.
 - C4: fechado. Credencial do proxy no navegador vai em `username`/`password` (BUG-006); verificado com Chromium real atrás de proxy local com Basic auth (`test_chromium_real_autentica_no_proxy_e_a_senha_nao_vaza` e o caso de senha errada em tests/test_browser.py), fora do sandbox.
-- C5: proxy morto aparece como RSP-R001 ("robots.txt não permite"), porque falha na busca do robots vira negado e fica no cache pelo TTL de erro. Visto na reprodução do BUG-006; mensagem enganosa, sem vazamento.
-- C3: M3 do plano: `raspador mcp` configurado num Claude Code real ainda não foi testado à mão.
+- C5: corrigido (commit pendente). Falha de rede, proxy ou 5xx no robots.txt agora é `RobotsUnavailable` (RSP-R002, subclasse de `RobotsDenied`: o site continua fechado), com o motivo (nome da exceção, sem a mensagem do curl, que pode trazer credencial, ou `HTTP 5xx`). CLI sai com 5 (rede) e dica de rede/proxy; MCP diz que o site não negou nada; spider audita `robots_unavailable` com `code` e `reason`. 401/403 seguem RSP-R001. Testes: tests/test_robots_indisponivel.py e o caso de porta fechada em tests/test_mcp_stdio.py.
+- C3: parcial. Automatizado em tests/test_mcp_stdio.py: subprocesso `raspador mcp` em stdio, fluxo make_request, robots negado, sessão HTTP e recusa de localhost sem `--allow-private`, contra servidor HTTP real (pula no sandbox por EPERM). Falta a rodada com o Claude Code real (`claude -p --mcp-config`), bloqueada no sandbox (login expirado e api.anthropic.com negado).
 
 ## Resumo da rodada (2026-11-26)
 

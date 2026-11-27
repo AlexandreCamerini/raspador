@@ -21,7 +21,7 @@ from raspador._redact import redact
 from raspador._render import InvalidSelector, check_selector, format_for_path, render
 from raspador.browser import BrowserUnavailable
 from raspador.policy import InvalidProxy, PolicyError
-from raspador.robots import RobotsDenied
+from raspador.robots import RobotsDenied, RobotsUnavailable
 
 _BLOCK_STATUS = {401, 403, 407, 429}
 
@@ -109,6 +109,15 @@ def _run_fetch(
         return
     except PolicyError as e:
         ctx.fail(_ui.EXIT_POLICY, e.code, str(e), url=url, policy_err=e)
+        return
+    except RobotsUnavailable as e:
+        ctx.fail(
+            _ui.EXIT_NETWORK,
+            e.code,
+            str(e).split(": ", 1)[1],
+            url=url,
+            hint="confira a rede e o proxy (--proxy / RASPADOR_PROXY); o site não negou nada.",
+        )
         return
     except RobotsDenied as e:
         ctx.fail(
