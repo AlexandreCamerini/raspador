@@ -19,6 +19,7 @@ from raspador._hosts import canonical_host
 from raspador._redact import mask_proxy, redact_option
 
 USER_AGENT_PREFIX = "raspador/"
+_HEADER_TOKEN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")  # token da RFC 9110
 MIN_DOWNLOAD_DELAY = 0.5
 MAX_SLOTS_PER_DOMAIN = 4
 
@@ -165,6 +166,15 @@ def check_headers(headers: Mapping[str, Any] | None, url: str | None = None) -> 
     if headers is not None and not isinstance(headers, Mapping):
         raise TypeError(f"headers precisa ser um dict {{'Nome': 'valor'}}, não {type(headers).__name__}")
     for name, value in (headers or {}).items():
+        if not isinstance(name, str) or not _HEADER_TOKEN.match(name):
+            raise PolicyError(
+                "RSP-P003",
+                f"headers[{name!r}]",
+                "***",
+                "nome de header fora do padrão HTTP (espaço, tab, vazio): alguns servidores o leem como outro header, "
+                "o que contorna as checagens por nome.",
+                "use o nome exato, sem espaços: 'Authorization', 'Accept-Language'.",
+            )
         key = name.lower()
         if key == "proxy-authorization":
             raise PolicyError(

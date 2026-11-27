@@ -56,7 +56,7 @@ from raspador.policy import (
     check_session,
     check_spider_class,
 )
-from raspador.proxies import ProxyPool, entry_url
+from raspador.proxies import POOL_REQUEST_HEADERS, ProxyPool, entry_url
 from raspador.robots import RobotsDenied, RobotsUnavailable
 
 __all__ = [
@@ -93,6 +93,30 @@ def _host(url: str) -> str:
         return canonical_host(host) if host else ""
     except ValueError:
         return host.lower()
+
+
+def _check_pool_request_credentials(url: str, kwargs: dict[str, Any]) -> None:
+    """Com proxy_pool, credencial do site por request sairia pelo proxy do pool, que a sessão do pool já recusa.
+
+    Mesma regra da sessão do pool: allowlist de headers, nada de cookies/cert, nada de usuário e senha na URL.
+    """
+    parts = urlsplit(url)
+    found = [k for k in ("cookies", "cert") if kwargs.get(k)]
+    if parts.username is not None or parts.password is not None:
+        found.append("url")
+    fora = [k for k in (kwargs.get("headers") or {}) if str(k).lower() not in POOL_REQUEST_HEADERS]
+    if fora:
+        found.append("headers")
+    if found:
+        raise PolicyError(
+            "RSP-P010",
+            found[0],
+            "***",
+            "com proxy_pool, credencial do site (Authorization, Cookie, chave de API em header, cookies, cert, "
+            "usuário e senha na URL) iria pelo proxy do pool, que atende todos os domínios do spider. Headers "
+            "aceitos por request: " + ", ".join(sorted(POOL_REQUEST_HEADERS)) + ".",
+            "use um spider só para o site autenticado, com proxy fixo (http.spider_session(proxy=...)).",
+        )
 
 
 class RaspadorRobots(RobotsTxtManager):
@@ -350,6 +374,8 @@ class GuardedSessionManager(SessionManager):
                     "com proxy_pool, desligar a verificação TLS deixa qualquer proxy do pool ler e alterar o HTTPS.",
                     "mantenha verify=True; para CA corporativa use verify='/caminho/ca.pem'.",
                 )
+            if self._pool is not None:
+                _check_pool_request_credentials(request.url, request._session_kwargs)
         except PolicyError as e:
             spider._audit.record("policy_error", url=request.url, domain=domain, code=e.code, detail=e.option)
             raise

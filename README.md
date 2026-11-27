@@ -93,9 +93,12 @@ with browser.BrowserSession(contact="mailto:voce@exemplo.com") as b:
 ```
 
 O Chromium é o do Playwright, sem patch de stealth. A URL pedida é checada contra endereço interno, com resolução de
-DNS. Dentro da página, requisições para `localhost`, `*.localhost` e IP interno literal são abortadas; um hostname
-que resolve para IP privado não é barrado nesse ponto (veja os limites conhecidos). O robots.txt é checado antes de
-abrir a aba e de novo na URL final, se ela mudou. `BrowserSession(check_robots=False)` pula a checagem prévia: é o
+DNS. Dentro da página, requisições para `localhost`, `*.localhost`, IP interno literal ou hostname que resolve
+para IP interno são abortadas (uma consulta de DNS por host na sessão). A mesma guarda vale para popups e
+WebSockets, e service workers ficam bloqueados. Se a navegação terminar em outro host, a URL final passa pela mesma
+checagem. Para uma intranet sua, `BrowserSession(allow_private=True)` (no MCP, `--allow-private`) desliga essa
+guarda. O robots.txt é checado antes de abrir a aba e de novo na URL final, se ela
+mudou. `BrowserSession(check_robots=False)` pula a checagem prévia: é o
 que o spider usa, porque o engine já consultou o robots.txt antes.
 
 ### Spider
@@ -154,8 +157,11 @@ class Precos(Spider):
 ```
 
 Por política, o pool não tem failover: se um proxy cai, o request falha, sem trocar de proxy e sem sair direto.
-As sessões do pool não aceitam credencial do site (cookies, `cert`, `Authorization`, headers fora de
-`accept*`/`user-agent`) nem `verify=False`, porque atendem todos os domínios. A senha do proxy é mascarada em erros,
+O pool não aceita credencial do site nem `verify=False`, porque atende todos os domínios. Nas sessões do pool só
+passam `accept*` e `user-agent`. Em cada request passam também `referer`, `origin`, `content-type`, `cache-control`,
+`pragma`, `if-none-match`, `if-modified-since` e `range`. Qualquer outro header (`Authorization`, `Cookie`,
+`X-Api-Key`...), `cookies=`, `cert=` ou usuário e senha na URL dão `RSP-P010`, antes de qualquer envio, inclusive
+do robots.txt. A senha do proxy é mascarada em erros,
 nos logs do `scrapling` e do `raspador`, na auditoria, nas estatísticas e no checkpoint. O motivo de cada uma dessas decisões está em
 [replica/plano-seguranca-proxypool.md](replica/plano-seguranca-proxypool.md).
 
@@ -179,7 +185,7 @@ menos que o servidor seja iniciado com `--allow-private`. Dentro do navegador va
 |---|---|
 | RSP-P001 | opção fora da allowlist |
 | RSP-P002 | opção de evasão (impersonate, stealth, solver, impressão digital) |
-| RSP-P003 | header de disfarce, ou credencial em header que vazaria (`Proxy-Authorization`) |
+| RSP-P003 | header de disfarce, nome de header fora do padrão HTTP, ou credencial em header que vazaria (`Proxy-Authorization`) |
 | RSP-P004 | tentativa de desligar o robots.txt |
 | RSP-P005 | `download_delay` abaixo de 0,5 s ou `concurrent_requests_per_domain` fora de 1 a 4, sem `policy_override` |
 | RSP-P006 | rotação de proxy, proxy por request, pool com navegador, ou dois proxies para o mesmo domínio na mesma execução |
@@ -200,12 +206,12 @@ menos que o servidor seja iniciado com `--allow-private`. Dentro do navegador va
 - O Scrapling está fixado em `==0.5.1`. O raspador depende de detalhes internos dele (sessões, engine do spider),
   e por isso atualizar a versão exige rodar os testes de contrato (`tests/test_contract_upstream.py`).
 - O ProxyPool v1 é só HTTP: não funciona com sessão de navegador no mesmo spider e não tem failover.
-- Credencial por request (`Request(headers={"Authorization": ...})`, `cookies`) passa pelo pool e sai pelo proxy do
-  domínio. A recusa de credencial vale só para as sessões do pool. Para um site autenticado, use um spider próprio
-  com proxy fixo.
-- No navegador, a guarda contra rede interna dentro da página só olha `localhost` e IP literal. Um subrecurso ou
-  redirect para um hostname que resolve para IP privado não é barrado. Os saltos intermediários de redirect do
-  navegador também não são checados contra o robots.txt; só a URL final é.
+- No navegador, a guarda contra rede interna resolve o DNS uma vez e o Chromium resolve de novo ao conectar:
+  DNS rebinding entre as duas consultas não é coberto. O Playwright só entrega à guarda a primeira URL de um
+  redirect, então um subrecurso (`<img src>` que responde 302 para 169.254.169.254) chega ao destino interno; na
+  navegação principal, a URL final é recusada (`RSP-N002`), mas a requisição já saiu. Fechar isso exige um proxy
+  de egress local que resolva e fixe o IP, o que ainda não existe.
+- Com ProxyPool, um token na query string (`params={"access_token": ...}`) não é detectável e sai pelo proxy.
 - Um robots.txt com 4xx que não seja 401/403, inclusive 429, é tratado como ausente (tudo permitido), como no Scrapy.
 - A integração com Scrapy (`raspador.integrations.scrapy`) não é testada no CI, porque o Scrapy não está nas
   dependências.

@@ -6,7 +6,8 @@ adaptador renderiza JavaScript e devolve o mesmo `Response` do Scrapling, com:
 - User-Agent `raspador/...`; nada de `init_script`, flags ou patch de fingerprint. O Chromium continua
   mandando os próprios client hints e `navigator.webdriver = true`: é um navegador automatizado e diz isso.
 - robots.txt antes de navegar e de novo na URL final, se o navegador foi redirecionado.
-- Requisições para IP interno literal ou `localhost` abortadas (a página não usa sua rede local).
+- Requisições para `localhost`, IP interno literal ou hostname que resolve para IP interno abortadas (a página não
+  usa sua rede local); a URL final de um redirect passa pela mesma checagem.
 - `max_bytes` no HTML final.
 
 `page_setup` e `page_action` recebem a página crua do Playwright: o modelo de ameaça é acidente, não sabotagem.
@@ -14,6 +15,7 @@ adaptador renderiza JavaScript e devolve o mesmo `Response` do Scrapling, com:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 from collections.abc import Callable
@@ -103,18 +105,71 @@ def check_cdp_url(cdp_url: str) -> None:
     )
 
 
+def needs_dns(host: str, target_host: str, cache: dict[str, bool], allow_private: bool = False) -> bool:
+    """Se `internal_by_dns` vai consultar o DNS (para a versão async só abrir thread quando precisa)."""
+    return not (
+        allow_private
+        or not host
+        or host == target_host
+        or host in cache
+        or _literal_ip(host)
+        or host == "localhost"
+        or host.endswith(".localhost")
+    )
+
+
+def internal_by_dns(host: str, target_host: str, cache: dict[str, bool], allow_private: bool = False) -> bool:
+    """Hostname (não IP literal, não o host alvo) que resolve para endereço interno. Uma consulta por host na sessão.
+
+    `route_decision` já cobre `localhost` e IP literal sem DNS. Falha de rede no DNS (NXDOMAIN, sem conexão) não
+    aborta: o próprio Chromium falha. Qualquer outro erro aborta (falha fechada): uma exceção aqui deixaria a rota
+    pendente e a página esperando até o timeout.
+    Limite: o Chromium resolve de novo ao conectar, então DNS rebinding entre as duas consultas não é coberto.
+    """
+    if allow_private or host in cache:
+        return False if allow_private else cache[host]
+    if not needs_dns(host, target_host, cache):
+        return False
+    try:
+        addrs = http_mod.resolve(host)
+        cache[host] = any(_is_internal(a) for a in addrs)
+    except OSError:
+        cache[host] = False
+    except Exception:
+        cache[host] = True
+    return cache[host]
+
+
+def check_final_url(url: str, final_url: str, allow_private: bool = False) -> None:
+    """URL onde o navegador parou depois de redirects: http(s) e fora da rede interna (`RSP-N002`)."""
+    if final_url == url:
+        return
+    http_mod.check_url(final_url)
+    if not allow_private:
+        http_mod.check_redirect_target(url, final_url)
+
+
+async def check_final_url_async(url: str, final_url: str, allow_private: bool = False) -> None:
+    if final_url == url:
+        return
+    http_mod.check_url(final_url)
+    if not allow_private:
+        await http_mod.check_redirect_target_async(url, final_url)
+
+
 def route_decision(
     request_url: str,
     resource_type: str,
     target_host: str,
     disable_resources: bool,
     blocked: frozenset[str] = frozenset(),
+    allow_private: bool = False,
 ) -> str:
     """'abort' ou 'continue' para cada requisição da página. Função pura, testada sem navegador."""
     host = _host(request_url)
     if host and host != target_host and _matches(host, blocked):
         return "abort"
-    if host and host != target_host:
+    if host and host != target_host and not allow_private:
         literal = _literal_ip(host)
         if host == "localhost" or host.endswith(".localhost") or (literal and _is_internal(literal)):
             return "abort"
@@ -214,6 +269,7 @@ class BrowserSession:
         proxy: str | None = None,
         storage_state: str | Path | None = None,
         check_robots: bool = True,
+        allow_private: bool = False,
         record_requests: bool = False,
         max_recorded_requests: int = 1000,
         blocked_domains: Any = None,
@@ -238,10 +294,56 @@ class BrowserSession:
         self._defaults = defaults
         self._http = HttpSession(contact, proxy=proxy) if proxy else HttpSession(contact)
         self._is_alive = False
+        self._dns_internal: dict[str, bool] = {}  # host -> resolve para IP interno
+        # True: a página pode usar a rede local (intranet). Padrão False; o MCP repassa o --allow-private
+        self._allow_private = allow_private
+        self._target = ""  # host alvo do fetch em curso, para a guarda do contexto (popups)
+
+    def _decide(self, url: str, resource_type: str, target: str, disable_resources: bool) -> str:
+        decision = route_decision(url, resource_type, target, disable_resources, self._blocked, self._allow_private)
+        if decision != "abort" and internal_by_dns(_host(url), target, self._dns_internal, self._allow_private):
+            decision = "abort"
+        return decision
+
+    async def _decide_async(self, url: str, resource_type: str, target: str, disable_resources: bool) -> str:
+        decision = route_decision(url, resource_type, target, disable_resources, self._blocked, self._allow_private)
+        host = _host(url)
+        if decision != "abort":
+            if needs_dns(host, target, self._dns_internal, self._allow_private):
+                interno = await asyncio.to_thread(internal_by_dns, host, target, self._dns_internal)
+            else:
+                interno = internal_by_dns(host, target, self._dns_internal, self._allow_private)
+            if interno:
+                decision = "abort"
+        return decision
+
+    def _context_guard(self, route: Any) -> None:
+        """Popups e abas abertas pela página não têm o page.route do fetch: a guarda do contexto os cobre."""
+        if self._decide(route.request.url, route.request.resource_type, self._target, False) == "abort":
+            route.abort()
+        else:
+            route.fallback()
+
+    async def _context_guard_async(self, route: Any) -> None:
+        decision = await self._decide_async(route.request.url, route.request.resource_type, self._target, False)
+        await (route.abort() if decision == "abort" else route.fallback())
+
+    def _ws_guard(self, ws: Any) -> None:
+        if self._decide(ws.url, "websocket", self._target, False) == "abort":
+            ws.close()
+        else:
+            ws.connect_to_server()
+
+    async def _ws_guard_async(self, ws: Any) -> None:
+        if await self._decide_async(ws.url, "websocket", self._target, False) == "abort":
+            await ws.close()
+        else:
+            ws.connect_to_server()
 
     # -- ciclo de vida -------------------------------------------------------------------------------
     def _context_kwargs(self) -> dict[str, Any]:
-        kw: dict[str, Any] = {"user_agent": default_user_agent(self._contact)}
+        # service worker busca fora do page.route (a guarda não veria): bloqueado
+        kw: dict[str, Any] = {"user_agent": default_user_agent(self._contact), "service_workers": "block"}
         if self._locale:
             kw["locale"] = self._locale
         if self._storage_state:
@@ -264,6 +366,7 @@ class BrowserSession:
             else:
                 self._browser = self._pw.chromium.launch(**self._launch_kwargs())
             self._context = self._browser.new_context(**self._context_kwargs())
+            self._context.route("**/*", self._context_guard)
         except Exception as e:
             self._close_quietly()
             raise BrowserUnavailable(e) from e
@@ -302,6 +405,7 @@ class BrowserSession:
         self._storage_state = _state_path(path)
         self._context.close()
         self._context = self._browser.new_context(**self._context_kwargs())
+        self._context.route("**/*", self._context_guard)
         self.network._attach(self._context)
 
     # -- fetch --------------------------------------------------------------------------------------
@@ -316,11 +420,10 @@ class BrowserSession:
         page = self._context.new_page()
         try:
             target = _host(url)
+            self._target = target
 
             def guard(route: Any) -> None:
-                decision = route_decision(
-                    route.request.url, route.request.resource_type, target, opts.disable_resources, self._blocked
-                )
+                decision = self._decide(route.request.url, route.request.resource_type, target, opts.disable_resources)
                 # fallback() repassa a rotas registradas antes (page_setup) ou, sem elas, à rede
                 route.abort() if decision == "abort" else route.fallback()
 
@@ -330,6 +433,7 @@ class BrowserSession:
                 opts.page_setup(page)
             # registrada por último = avaliada primeiro: nenhuma rota do usuário passa por cima da guarda
             page.route("**/*", guard)
+            page.route_web_socket("**/*", self._ws_guard)
             nav = page.goto(url, wait_until=opts.wait_until, timeout=opts.timeout)
             if opts.network_idle:
                 page.wait_for_load_state("networkidle", timeout=opts.timeout)
@@ -341,7 +445,7 @@ class BrowserSession:
                 page.wait_for_timeout(opts.wait_ms)
             final_url = page.url
             if final_url != url:
-                http_mod.check_url(final_url)
+                check_final_url(url, final_url, self._allow_private)
                 robots.shared_cache().check(final_url, self._robots_fetch)
             response = build_response(
                 final_url,
@@ -371,6 +475,7 @@ class AsyncBrowserSession(BrowserSession):
             else:
                 self._browser = await self._pw.chromium.launch(**self._launch_kwargs())
             self._context = await self._browser.new_context(**self._context_kwargs())
+            await self._context.route("**/*", self._context_guard_async)
         except Exception as e:
             await self._aclose_quietly()
             raise BrowserUnavailable(e) from e
@@ -406,6 +511,7 @@ class AsyncBrowserSession(BrowserSession):
         self._storage_state = _state_path(path)
         await self._context.close()
         self._context = await self._browser.new_context(**self._context_kwargs())
+        await self._context.route("**/*", self._context_guard_async)
         self.network._attach(self._context)
 
     async def _robots_fetch(self, robots_url: str):  # type: ignore[override]
@@ -419,10 +525,11 @@ class AsyncBrowserSession(BrowserSession):
         page = await self._context.new_page()
         try:
             target = _host(url)
+            self._target = target
 
             async def guard(route: Any) -> None:
-                decision = route_decision(
-                    route.request.url, route.request.resource_type, target, opts.disable_resources, self._blocked
+                decision = await self._decide_async(
+                    route.request.url, route.request.resource_type, target, opts.disable_resources
                 )
                 await (route.abort() if decision == "abort" else route.fallback())
 
@@ -431,6 +538,7 @@ class AsyncBrowserSession(BrowserSession):
             if opts.page_setup:
                 await _maybe_await(opts.page_setup(page))
             await page.route("**/*", guard)
+            await page.route_web_socket("**/*", self._ws_guard_async)
             nav = await page.goto(url, wait_until=opts.wait_until, timeout=opts.timeout)
             if opts.network_idle:
                 await page.wait_for_load_state("networkidle", timeout=opts.timeout)
@@ -442,7 +550,7 @@ class AsyncBrowserSession(BrowserSession):
                 await page.wait_for_timeout(opts.wait_ms)
             final_url = page.url
             if final_url != url:
-                http_mod.check_url(final_url)
+                await check_final_url_async(url, final_url, self._allow_private)
                 await robots.shared_cache().check_async(final_url, self._robots_fetch)
             response = build_response(
                 final_url,

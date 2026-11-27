@@ -15,7 +15,7 @@ from scrapling.fetchers import FetcherSession
 
 from raspador import robots
 from raspador._hosts import canonical_host
-from raspador._redact import scrub_response
+from raspador._redact import redact, scrub_response
 from raspador.adaptive import RaspadorStorage
 from raspador.policy import check_headers, check_request_kwargs, default_user_agent
 
@@ -39,6 +39,11 @@ _SESSION_KWARGS = frozenset(
 )
 
 
+def mask_userinfo(url: str) -> str:
+    """`https://u:senha@host/` -> `https://***@host/`: mensagens de erro não mostram credencial da URL."""
+    return redact(url)
+
+
 class InvalidURL(ValueError):
     """URL que não é http(s) com host. `file://`, `ftp://`, vazia ou sem esquema nunca chegam ao curl."""
 
@@ -46,7 +51,8 @@ class InvalidURL(ValueError):
 
     def __init__(self, url: str, why: str) -> None:
         self.url = url
-        shown = url if len(url) <= 120 else url[:117] + "..."
+        shown = mask_userinfo(url)
+        shown = shown if len(shown) <= 120 else shown[:117] + "..."
         super().__init__(f"{self.code}: URL inválida {shown!r}: {why}. Use uma URL http:// ou https:// completa.")
 
 
@@ -75,14 +81,14 @@ class RedirectBlocked(Exception):
 
     def __init__(self, url: str) -> None:
         self.url = url
-        super().__init__(f"{self.code}: redirect para endereço interno bloqueado: {url}")
+        super().__init__(f"{self.code}: redirect para endereço interno bloqueado: {mask_userinfo(url)}")
 
 
 class InternalAddressBlocked(RedirectBlocked):
     """URL inicial em endereço interno, quando quem escolhe a URL não é o usuário (MCP)."""
 
     def __init__(self, url: str) -> None:
-        Exception.__init__(self, f"{self.code}: endereço interno bloqueado: {url}")
+        Exception.__init__(self, f"{self.code}: endereço interno bloqueado: {mask_userinfo(url)}")
         self.url = url
 
 
@@ -112,10 +118,18 @@ def _host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower()
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPAT = ipaddress.ip_network("::/96")
+
+
 def _is_internal(addr: str) -> bool:
     ip = ipaddress.ip_address(addr.split("%")[0])
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        elif ip in _NAT64 or (ip in _IPV4_COMPAT and int(ip) > 1):
+            # 64:ff9b::a00:5 chega a 10.0.0.5 numa rede NAT64; ::a00:5 é a forma IPv4-compatível (obsoleta)
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
     return not ip.is_global  # cobre privado, loopback, link-local, CGNAT (100.64/10), reservado, 0.0.0.0
 
 

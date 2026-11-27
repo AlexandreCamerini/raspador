@@ -193,6 +193,7 @@ def build_server(contact: str | None = None, allow_private: bool = False) -> MCP
             block_ads=block_ads,
             locale=locale,
             disable_resources=disable_resources,
+            allow_private=allow_private,
         )
         await _guarded(session.__aenter__)
         sid = uuid.uuid4().hex[:8]

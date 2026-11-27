@@ -27,6 +27,20 @@ _LABEL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 POOL_SCHEMES = frozenset({"http", "https", "socks5h"})
 _POOL_HEADERS = frozenset({"accept", "accept-language", "accept-encoding", "user-agent"})
+# Por request, com pool: os da sessão mais os de conteúdo e cache. Allowlist, como na sessão: `X-Api-Key`,
+# `X-Auth-Token` e afins são credencial com outro nome.
+POOL_REQUEST_HEADERS = _POOL_HEADERS | frozenset(
+    {
+        "referer",
+        "origin",
+        "content-type",
+        "cache-control",
+        "pragma",
+        "if-none-match",
+        "if-modified-since",
+        "range",
+    }
+)
 
 
 class ProxyEntry:

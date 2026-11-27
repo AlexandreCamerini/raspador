@@ -162,6 +162,41 @@ Status: fixed em `d5f9bc9`: `raspador._hosts.canonical_host` (UTS 46 via `idna`,
 proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; subclasse de
 `FetcherSession` é RSP-P007; host que não canoniza (rótulo vazio, caractere invisível) é RSP-U001.
 
+### BUG-010: navegador buscava subrecurso e redirect em hostname que resolve para IP interno
+
+- Severity: S2 (SSRF pelo navegador: no MCP a URL vem de um modelo; a página carrega `https://intranet/` ou um nome
+  que aponta para 169.254.169.254)
+- Found: revisão independente do README, 2026-11-27
+- Steps: `BrowserSession().fetch(url)` de página com `<img src="https://intranet.exemplo/x">`, onde
+  `intranet.exemplo` resolve para 10.0.0.5.
+- Expected: requisição abortada, como já era para `localhost` e IP literal.
+- Actual: `route_decision` só olhava IP literal; a requisição saía. A URL final de um redirect só passava por
+  `check_url` (esquema e host), sem checagem de rede interna.
+- Fix: `browser.internal_by_dns` (uma consulta por host na sessão, em thread na versão async) na guarda de rota;
+  `browser.check_final_url` reaproveita `http.check_redirect_target`. A revisão adversarial da correção achou mais:
+  exceção não-`OSError` no DNS travava a rota (agora falha fechada), popup e WebSocket fora do `page.route` (guarda
+  no contexto e `route_web_socket`), service worker (bloqueado), NAT64 `64:ff9b::/96` e IPv4-compatível `::/96` não
+  vistos como internos (corrigido em `_is_internal`), e nenhuma saída para intranet (`allow_private`, repassado pelo
+  MCP). Limite: DNS rebinding e redirect de subrecurso (o Playwright só roteia a primeira URL). Testes:
+  tests/test_lacunas_politica.py.
+- Status: fixed (commit pendente)
+
+### BUG-011: credencial por request saía pelo proxy do pool
+
+- Severity: S2 (furo de política: a sessão do pool recusa credencial do site, o request não)
+- Found: revisão independente do README, 2026-11-27
+- Steps: spider com `proxy_pool` e `Request(url, headers={"Authorization": "Bearer ..."})` (ou `cookies=`, `cert=`).
+- Expected: RSP-P010, nada enviado.
+- Actual: `check_request_kwargs` aceitava e o request saía pelo proxy do domínio com a credencial.
+- Fix: `_check_pool_request_credentials` em `GuardedSessionManager._guarded_fetch` quando há pool; auditado como
+  `policy_error` com valor `***`. Sem pool, credencial por request continua permitida. A revisão adversarial achou
+  usuário e senha na URL (iam inclusive no robots.txt), `X-Api-Key`/`X-Auth-Token` (a primeira versão era denylist)
+  e nome de header com espaço (`"Authorization "`); agora é allowlist (`proxies.POOL_REQUEST_HEADERS`), a URL é
+  checada, e `check_headers` recusa nome fora do token HTTP (P003) em qualquer modo. Mensagens `RSP-U001`/`N002`
+  mascaram usuário e senha da URL. Limite: token na query string. Testes:
+  tests/test_lacunas_politica.py.
+- Status: fixed (commit pendente)
+
 ## A conferir (não reproduzido)
 
 - C1: (resolvido pelo BUG-004) o erro de launch com `storage_state` inexistente não acontece mais: o caminho é checado antes.
@@ -172,5 +207,5 @@ proxy; `%` no host é RSP-U001; `allowed_domains` comparado na forma canônica; 
 
 ## Resumo da rodada (2026-11-26)
 
-Casos no plano: 42 de fluxo + 3 manuais. Dos 42: 40 rodados e passando, 1 n/a (F13, shell não construído), 1 skip (F14, sem Scrapy). Manuais: 2 pass, 1 pendente (C3). Bugs: S1 2, S2 3, S3 3, S4 1 (BUG-006 a 009 achados no /replica-diff e nas revisões);
+Casos no plano: 42 de fluxo + 3 manuais. Dos 42: 40 rodados e passando, 1 n/a (F13, shell não construído), 1 skip (F14, sem Scrapy). Manuais: 3 pass (C3 fechado em `2b5ca1d`). Bugs: S1 2, S2 5, S3 3, S4 1 (BUG-006 a 011 achados no /replica-diff e nas revisões);
 todos corrigidos com o teste vermelho antes. Nenhum S1 aberto.
