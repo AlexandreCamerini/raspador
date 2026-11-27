@@ -251,7 +251,7 @@ def _get(url: str):
 CENARIOS: list[tuple[str, str, Callable[[Resultado], None]]] = [
     ("A1", "spider paginado: pausa, retoma do crawldir, ritmo por domínio", a1_retomada_e_ritmo),
     ("A2", "página só com JS: HTTP vê 0, navegador vê 10", a2_pagina_js),
-    ("A3", "robots.txt nega /deny: RSP-R001 sem buscar a página", a3_robots_nega),
+    ("A3", "robots.txt nega /deny: RSP-R001 (não R002)", a3_robots_nega),
     ("A4", "redirect para 169.254.169.254 (IP e hostname): RSP-N002", a4_redirect_interno),
     ("A6", "User-Agent raspador/ e nenhum header de navegador", a6_user_agent),
     ("A7", "Claude Code real chama o raspador mcp", a7_mcp_claude),
