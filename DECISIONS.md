@@ -112,3 +112,11 @@
   - `claude mcp list` continua mostrando o raspador como connected.
 - Antes da atualização, o mesmo teste na 0.1.1 instalada deixou o POST passar. Isso confirma que a correção só vale
   para quem atualizar.
+
+## 2026-11-28: relato privado e Dependabot ligados
+
+- Ligados pela API do GitHub: o relato privado de vulnerabilidades (`private-vulnerability-reporting`, com
+  `enabled=true`) e os alertas do Dependabot (`vulnerability-alerts`, respondendo 204). O link "Report a
+  vulnerability" do SECURITY.md passa a funcionar.
+- Continua sem `.github/dependabot.yml`. Por isso os alertas avisam sobre dependências com falha, mas ninguém abre
+  PR para atualizar os SHAs fixados das actions.

@@ -133,7 +133,8 @@ A ferramenta cuida do comportamento técnico. A decisão sobre o uso é sua.
 
 - Os testes que precisam de Chromium ou de porta local não rodaram no ambiente da auditoria; as guardas do navegador
   foram conferidas só no código. No CI do GitHub eles rodam.
-- Vulnerabilidades conhecidas nas dependências (pip-audit / OSV): não verificado.
+- Vulnerabilidades conhecidas nas dependências (pip-audit / OSV): não verificado manualmente. Os alertas do
+  Dependabot estão ligados desde 2026-11-28 e passam a avisar sobre dependências com falha conhecida.
 - Configurações do GitHub: proteção dos environments `pypi` e `testpypi`, proteção de branch e de tag. O relato
-  privado de vulnerabilidades e os alertas do Dependabot ainda precisam ser ligados no repositório.
+  privado de vulnerabilidades está ligado desde 2026-11-28.
 - Se o pacote publicado no PyPI é idêntico ao build da tag `v0.1.1`.
