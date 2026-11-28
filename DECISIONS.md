@@ -37,3 +37,30 @@
   `raspador --version` retorna 0.1.0.
 - Próxima versão: subir `version` no pyproject e em `__init__.py`, depois criar a tag `vX.Y.Z`. O publisher do
   PyPI já está ativo, então não precisa cadastrar de novo.
+
+## 2026-11-27: 0.1.1 publicada (CLI amigável)
+
+- Contexto: na 0.1.0 a CLI copiava a interface do Scrapling. `get` exigia o argumento OUTPUT, e quem não é
+  desenvolvedor não conseguia usar.
+- Mudanças:
+  - novo comando `raspador ler URL`, que mostra a página em Markdown na tela, com `-o`, `-s` e `--js`;
+  - OUTPUT opcional em `get` e `fetch`;
+  - `raspador` sem argumentos mostra exemplos;
+  - `post`, `put` e `delete` continuam funcionando, mas não aparecem mais na ajuda.
+- Links e imagens relativos no Markdown passam a sair absolutos, resolvidos contra a URL da página. A correção
+  fica em `render()` (`_render.py`) e por isso vale para a CLI e para o MCP. `mailto:` e URLs que já são
+  absolutas passam sem mudança. A correção foi feita depois que um teste manual da 0.1.1 ainda sem publicar
+  mostrou links como `(about)`, que não funcionam fora do site.
+- Publicada pela run 46078289400, disparada pela tag `v0.1.1` (commit 72f6404), que passou na primeira tentativa.
+  Gate antes da tag: ruff limpo, pyright sem erros, pytest com 355 passed e 14 skipped.
+- Verificação depois da publicação, instalando do PyPI com `uv tool install --force "raspador-compliant[mcp]==0.1.1"`:
+  - `raspador --version` mostra 0.1.1;
+  - `ler` em quotes.toscrape.com devolve links absolutos;
+  - `httpbin.org/deny` é recusado com RSP-R001 e exit 6.
+- Teste do MCP:
+  - Por um cliente stdio: as 9 tools aparecem, `make_request` traz as 10 citações de quotes.toscrape.com e
+    `httpbin.org/deny` é recusado com RSP-R001.
+  - Pelo Claude Code em modo headless (Haiku), com um pedido em linguagem natural: as 10 citações saíram com os
+    autores corretos.
+- Problema que pode voltar: depois de instalar uma versão nova, o zsh pode continuar chamando o binário antigo
+  em `~/.local/bin` porque guarda o caminho em cache. `hash -r` resolve.
