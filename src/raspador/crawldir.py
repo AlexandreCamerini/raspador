@@ -43,6 +43,9 @@ def secure_crawldir(path: str | Path) -> Path:
         raise UnsafeCrawldir(p, "pertence a outro usuário")
     if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise UnsafeCrawldir(p, "tem escrita para grupo ou outros")
+    if st.st_mode & (stat.S_IRGRP | stat.S_IROTH | stat.S_IXGRP | stat.S_IXOTH):
+        # O checkpoint guarda as requisições pendentes, com headers e cookies do site.
+        raise UnsafeCrawldir(p, "tem leitura ou acesso para grupo ou outros (rode `chmod 700` nele)")
     return p
 
 

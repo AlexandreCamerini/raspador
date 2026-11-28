@@ -64,3 +64,31 @@
     autores corretos.
 - Problema que pode voltar: depois de instalar uma versão nova, o zsh pode continuar chamando o binário antigo
   em `~/.local/bin` porque guarda o caminho em cache. `hash -r` resolve.
+
+## 2026-11-28: auditoria de segurança, guia de uso e crédito semente.dev
+
+- Uma auditoria independente feita só por leitura, sobre a 0.1.1, não encontrou nada de severidade alta: nenhum
+  segredo no histórico, nenhuma execução remota e nenhuma forma de um PR de fork publicar. Achados e riscos residuais
+  estão em `SECURITY.md`.
+- Corrigido e publicado na 0.1.2:
+  - O MCP só faz GET por padrão. POST, PUT e DELETE agora exigem `raspador mcp --allow-write` (`RSP-M006`).
+    **Muda comportamento**: quem dependia de escrita via MCP precisa da flag.
+  - A sanitização do MCP passou a remover `hidden`, `input type=hidden`, `<meta>`/`<link>`, tags Unicode e
+    controles bidi.
+  - O MCP recebeu limites: `max_chars` de 1 a 500 mil, `timeout` de 1 a 120 s e no máximo 10 sessões HTTP.
+  - Um `crawldir` existente que grupo ou outros podem ler é recusado. O motivo é que o checkpoint guarda headers e
+    cookies.
+  - `audit.jsonl` passa a ser criado com permissão 0600, e `--report json` mascara a credencial na URL.
+  - As actions passaram a ser fixadas por SHA, com `twine==7.0.0` e `hatchling==1.33.0`. O hatchling 1.33 gera
+    metadata 2.5, que o twine 6.2 recusa.
+- Documentação: `docs/GUIA.md`, voltado a quem usa, e `SECURITY.md`. Promessas exageradas do README foram
+  corrigidas:
+  - a sanitização não elimina prompt injection;
+  - a CLI e a biblioteca não checam rede interna na primeira URL;
+  - há DNS rebinding no HTTP e no MCP;
+  - não existe ritmo fora do Spider.
+- Crédito: "equipe semente.dev, by Alexandre Camerini" no README, no guia e no SECURITY. `authors` e
+  `[project.urls]` foram adicionados ao pyproject e só aparecem no PyPI na próxima versão. O titular do copyright na
+  LICENSE passou de "os autores do raspador" para "Alexandre Camerini (semente.dev)".
+- Pendências de configuração do repositório: ligar o relato privado de vulnerabilidades (o link do SECURITY.md
+  depende dele) e os alertas do Dependabot.

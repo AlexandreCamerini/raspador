@@ -1,6 +1,6 @@
 """raspador: raspagem web compliant sobre o Scrapling."""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from raspador._redact import install_log_redaction  # noqa: E402
 

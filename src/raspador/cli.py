@@ -78,7 +78,7 @@ class _Ctx:
             self.emit_json(
                 ok=False,
                 status=status,
-                url=url,
+                url=redact(url),
                 output=None,
                 bytes=0,
                 elapsed_ms=None,
@@ -198,7 +198,7 @@ def _run_fetch(
         ctx.emit_json(
             ok=not empty,
             status=page.status,
-            url=page.url,
+            url=redact(str(page.url)),
             output=None if output == "-" else output,
             bytes=size,
             elapsed_ms=int(elapsed * 1000),
@@ -417,7 +417,10 @@ def fetch_cmd(
 @main.command(name="mcp")
 @click.option("--contact", help="E-mail ou URL que vai no User-Agent de todas as requisições do servidor.")
 @click.option("--allow-private", is_flag=True, help="Permite URLs em localhost e rede privada (recusadas por padrão).")
-def mcp_cmd(contact: str | None, allow_private: bool) -> None:
+@click.option(
+    "--allow-write", is_flag=True, help="Permite POST, PUT e DELETE pedidos pelo modelo (por padrão, só GET)."
+)
+def mcp_cmd(contact: str | None, allow_private: bool, allow_write: bool) -> None:
     """Servidor MCP do raspador em stdio, para Claude Code, Claude Desktop e outros clientes MCP.
 
     Ferramentas sem evasão: requisições HTTP, navegador, histórico de rede e sessões.
@@ -426,7 +429,7 @@ def mcp_cmd(contact: str | None, allow_private: bool) -> None:
     from raspador.mcp_server import build_server
 
     logging.getLogger("scrapling").setLevel(logging.WARNING)
-    build_server(contact=contact, allow_private=allow_private).run("stdio")
+    build_server(contact=contact, allow_private=allow_private, allow_write=allow_write).run("stdio")
 
 
 @main.command()

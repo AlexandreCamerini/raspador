@@ -2,6 +2,11 @@
 
 Raspagem web que respeita o site, construída sobre o [Scrapling](https://github.com/D4Vinci/Scrapling) 0.5.1.
 
+Um produto da equipe [semente.dev](https://semente.dev), by Alexandre Camerini.
+
+> Primeira vez? Comece pelo [guia de uso](https://github.com/AlexandreCamerini/raspador/blob/main/docs/GUIA.md). Riscos, mitigações e como relatar uma
+> vulnerabilidade estão em [SECURITY.md](https://github.com/AlexandreCamerini/raspador/blob/main/SECURITY.md).
+
 - O robots.txt é sempre respeitado. Na CLI, no MCP e nos spiders não há como desligá-lo (`RSP-P004`). A regra usada
   é a do grupo `raspador` ou, se ele não existir, a do grupo `*`.
 - Toda requisição se identifica com o User-Agent `raspador/<versão>`, e você pode acrescentar um contato
@@ -39,7 +44,7 @@ Para usar só a CLI, isolada do resto do sistema: `uv tool install "raspador-com
 
 | Extra | O que traz |
 |---|---|
-| (nenhum) | HTTP, parser, spiders, CLI e navegador. O Playwright já vem com o `scrapling[fetchers]`, que também instala o patchright; o raspador não usa o patchright |
+| (nenhum) | HTTP, parser, spiders, CLI e navegador. O Playwright já vem com o `scrapling[fetchers]`, que também instala o patchright e os comandos `scrapling` e `scrapling-mcp` (com stealth). O raspador importa o patchright só por tipos e nunca navega com ele; não configure o `scrapling-mcp` no lugar do `raspador mcp` |
 | `browser` | fixa o Playwright na série 1.64, a mesma revisão de Chromium do upstream |
 | `mcp` | SDK do MCP para o `raspador mcp`, com o mesmo pin do Playwright |
 
@@ -194,6 +199,11 @@ uv tool install "raspador-compliant[mcp]"
 claude mcp add --scope user raspador -- raspador mcp --contact mailto:voce@exemplo.com
 ```
 
+Por padrão o servidor só faz GET. POST, PUT e DELETE pedidos pelo modelo dão `RSP-M006`, a menos que você inicie o
+servidor com `--allow-write`: o robots.txt não governa escrita, e uma página lida antes pode induzir o modelo a
+enviar dados para um site de terceiros. `max_chars` vai de 1 a 500 mil, `timeout` de 1 a 120 s e há no máximo 10
+sessões HTTP e 5 navegadores abertos.
+
 Depois, numa conversa do Claude Code: *"Usa o raspador para pegar as citações e os autores das 3 primeiras páginas de
 quotes.toscrape.com e monta uma tabela."* Se o site negar no robots.txt, o Claude recebe o código `RSP-R001` e
 explica em vez de insistir.
@@ -201,7 +211,10 @@ explica em vez de insistir.
 O servidor oferece estas ferramentas, todas sem evasão: `make_request`, `open_request_session`,
 `session_make_request`, `browser_open`, `browser_fetch`, `browser_network_requests`, `browser_network_request`,
 `list_sessions` e `close_session`. As páginas devolvidas por `make_request`, `session_make_request` e
-`browser_fetch` são sanitizadas: os elementos ocultos, via comum de prompt injection, são removidos. Já o
+`browser_fetch` são sanitizadas: elementos ocultos por estilo inline, `hidden`, `aria-hidden`, `<template>`, inputs
+ocultos, metadados, comentários e caracteres invisíveis (largura zero, tags Unicode, controles bidi) são removidos.
+Isso reduz, mas não elimina, o risco de prompt injection: texto escondido por CSS externo, posicionado fora da tela ou
+na cor do fundo passa, e instrução em texto visível também. Já o
 `browser_network_request` devolve o corpo da resposta cru, por exemplo o JSON de uma API, e deve ser tratado como
 conteúdo não confiável. A primeira URL de cada chamada é recusada se apontar para `localhost` ou rede privada, a
 menos que o servidor seja iniciado com `--allow-private`. Dentro do navegador vale a mesma guarda descrita acima.
@@ -225,7 +238,7 @@ menos que o servidor seja iniciado com `--allow-private`. Dentro do navegador va
 | RSP-N001 / N002 / N003 | falha de rede, redirect para endereço interno, resposta maior que o limite (20 MiB) |
 | RSP-B001 / B002 | o Chromium não abriu, ou a página não carregou |
 | RSP-F001 … F004 | crawldir inseguro ou em uso, falha ao gravar, arquivo de estado do navegador ausente |
-| RSP-M001 … M005 | MCP: sessão inexistente, histórico desligado, requisição fora do histórico, limite de navegadores, filtro de rede inválido |
+| RSP-M001 … M006 | MCP: sessão inexistente, histórico desligado, requisição fora do histórico, limite de sessões ou navegadores, filtro de rede inválido, escrita desligada (use `--allow-write`) |
 | RSP-H\<status\> | o servidor respondeu HTTP 4xx/5xx |
 
 ## Limites conhecidos
@@ -238,6 +251,17 @@ menos que o servidor seja iniciado com `--allow-private`. Dentro do navegador va
   redirect, então um subrecurso (`<img src>` que responde 302 para 169.254.169.254) chega ao destino interno; na
   navegação principal, a URL final é recusada (`RSP-N002`), mas a requisição já saiu. Fechar isso exige um proxy
   de egress local que resolva e fixe o IP, o que ainda não existe.
+- No HTTP e no MCP vale o mesmo para DNS rebinding: o endereço é checado numa consulta de DNS e o curl resolve de
+  novo ao conectar. IPs literais, `localhost` e metadados de nuvem são sempre barrados; um domínio que troca de IP
+  entre as duas consultas não é. A CLI e a biblioteca não checam endereço interno na primeira URL (só nos redirects),
+  porque quem escolhe a URL é você.
+- O limite de 20 MiB é conferido depois do download, e o robots.txt não tem limite próprio: um servidor hostil
+  pode fazer o processo usar muita memória antes da recusa.
+- Fora do Spider não há intervalo entre requisições: um laço em Python ou o modelo via MCP batem no site na
+  velocidade pedida.
+- O checkpoint do `crawldir` é um pickle do upstream com as requisições pendentes, incluindo headers e cookies do
+  site. O raspador exige o diretório com 0700 e do próprio usuário, mas nunca carregue um `crawldir` de outra pessoa:
+  pickle executa código ao ser lido.
 - Com ProxyPool, um token na query string (`params={"access_token": ...}`) não é detectável e sai pelo proxy.
 - Um robots.txt com 4xx que não seja 401/403, inclusive 429, é tratado como ausente (tudo permitido), como no Scrapy.
 - A integração com Scrapy (`raspador.integrations.scrapy`) não é testada no CI, porque o Scrapy não está nas
@@ -262,3 +286,8 @@ motivo. Os bugs encontrados e corrigidos estão em [replica/bugs.md](replica/bug
 
 BSD 3-Clause ([LICENSE](LICENSE)). O raspador redistribui o Scrapling como dependência; a licença dele está em
 [NOTICE](NOTICE).
+
+## Créditos
+
+Concepção e construção: equipe [semente.dev](https://semente.dev), by Alexandre Camerini. Base de raspagem:
+[Scrapling](https://github.com/D4Vinci/Scrapling), de Karim Shoair.

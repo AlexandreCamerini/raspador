@@ -54,14 +54,37 @@ def format_for_path(path: str) -> Format:
     return "text"
 
 
+# O sanitizador do upstream não pega estes: atributo `hidden` em qualquer tag, input oculto e metadados do <head>.
+_EXTRA_HIDDEN = ".//*[@hidden] | .//input[translate(@type, 'HIDEN', 'hiden')='hidden'] | .//meta | .//link"
+# Invisíveis que o upstream mantém: tags Unicode (ASCII smuggling), controles bidi e marcas de direção.
+_INVISIBLE = re.compile(r"[\U000e0000-\U000e007f\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]")
+
+
+def _sanitized(page: Any, body_only: bool) -> Any:
+    base = (page.css("body").first or page) if body_only else page
+    clean = Convertor._sanitize_for_ai(Convertor._strip_noise_tags(base))
+    for element in list(clean._root.xpath(_EXTRA_HIDDEN)):
+        element.drop_tree()
+    return clean
+
+
 def render(page: Any, fmt: Format, selector: str | None = None, sanitize: bool = False) -> str:
-    """`markdown` sempre remove o conteúdo oculto (upstream); `sanitize` faz o mesmo em html e texto e, no
-    Markdown, fica só com o <body>."""
+    """`markdown` sempre remove o conteúdo oculto que o upstream conhece. `sanitize` (MCP) vai além: remove também
+    `hidden`, input oculto, metadados e caracteres invisíveis, em qualquer formato, e no Markdown fica só com o
+    <body>."""
+    if not sanitize:
+        if fmt == "markdown":
+            md = page.markdown(css_selector=selector)
+            return absolutize_markdown(md, str(getattr(page, "url", "") or ""))
+        nodes = page.css(selector) if selector else [page]
+    else:
+        base = _sanitized(page, body_only=fmt == "markdown")
+        nodes = base.css(selector) if selector else [base]
     if fmt == "markdown":
-        md = page.markdown(css_selector=selector, main_content_only=sanitize)
-        return absolutize_markdown(md, str(getattr(page, "url", "") or ""))
-    base = Convertor._sanitize_for_ai(Convertor._strip_noise_tags(page)) if sanitize else page
-    nodes = base.css(selector) if selector else [base]
-    if fmt == "html":
-        return "\n".join(str(n.html_content) for n in nodes)
-    return "\n".join(str(n.get_all_text(separator="\n", strip=True)) for n in nodes)
+        md = "\n\n".join(Convertor._convert_to_markdown(n.html_content) for n in nodes)
+        out = absolutize_markdown(md, str(getattr(page, "url", "") or ""))
+    elif fmt == "html":
+        out = "\n".join(str(n.html_content) for n in nodes)
+    else:
+        out = "\n".join(str(n.get_all_text(separator="\n", strip=True)) for n in nodes)
+    return _INVISIBLE.sub("", out) if sanitize else out

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +56,7 @@ class AuditLog:
             self.events.append(line)
             if self.path:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
-                with self.path.open("a", encoding="utf-8") as fh:
+                fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                with os.fdopen(fd, "a", encoding="utf-8") as fh:
                     fh.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
         return line
