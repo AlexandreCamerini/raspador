@@ -92,3 +92,23 @@
   LICENSE passou de "os autores do raspador" para "Alexandre Camerini (semente.dev)".
 - Pendências de configuração do repositório: ligar o relato privado de vulnerabilidades (o link do SECURITY.md
   depende dele) e os alertas do Dependabot.
+
+## 2026-11-28: 0.1.2 publicada
+
+- Commit 5031def. O CI passou (run 46146542765) com os testes de Chromium e de porta local, que pulam no
+  ambiente local.
+- A tag `v0.1.2` disparou a run 46146966661, que passou na primeira tentativa: build e pypi deram success, testpypi
+  foi pulado. Foi a primeira publicação com as actions fixadas por SHA, `twine==7.0.0` e `hatchling==1.33.0`.
+- O índice do PyPI levou cerca de 1 minuto para mostrar a versão depois do upload, e o primeiro
+  `uv tool install ==0.1.2` falhou por isso.
+- Verificação, instalando do PyPI com `uv tool install --refresh --force "raspador-compliant[mcp]==0.1.2"`:
+  - `raspador --version` mostra 0.1.2;
+  - `raspador mcp --help` lista `--allow-write`;
+  - `ler -s small.author` retornou "Albert Einstein".
+- MCP contra o site real:
+  - GET devolveu os 10 autores;
+  - POST foi recusado com RSP-M006;
+  - `max_chars=0` foi rejeitado.
+  - `claude mcp list` continua mostrando o raspador como connected.
+- Antes da atualização, o mesmo teste na 0.1.1 instalada deixou o POST passar. Isso confirma que a correção só vale
+  para quem atualizar.
