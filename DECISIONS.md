@@ -129,3 +129,21 @@
   versão (`# v4`).
 - Dependências Python ficaram fora: o `uv.lock` é atualizado à mão e o Scrapling é fixado de propósito, porque
   atualizar exige rodar os testes de contrato.
+
+## 2026-11-28: workflow de publicação testado depois do PR 1 do Dependabot
+
+- O PR 1 do Dependabot (squash, commit 14f9977) atualizou as actions:
+  - checkout de v4 para v7.0.1;
+  - upload-artifact de v4 para v7.0.2;
+  - download-artifact de v4 para v8.0.2;
+  - setup-uv de v6 para v10.4.0.
+- O CI do PR e o CI do main passaram. O CI não executa o `publicar.yml`.
+- Para testar o `publicar.yml` antes da próxima tag, rodei o disparo manual (`workflow_dispatch`, run 46158736024),
+  que publica a 0.1.2 no TestPyPI. Resultado: build success, testpypi success, pypi skipped.
+- Verificado num venv limpo com `uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url
+  https://pypi.org/simple/ --index-strategy unsafe-best-match "raspador-compliant[mcp]==0.1.2"`:
+  - `raspador --version` retorna 0.1.2;
+  - `raspador mcp --help` lista `--allow-write`;
+  - `import raspador` vem do site-packages do venv.
+- Conclusão: o caminho de publicação funciona com as actions novas. A próxima tag deve publicar no PyPI sem
+  surpresa.
