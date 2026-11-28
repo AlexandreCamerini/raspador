@@ -1,0 +1,17 @@
+# Mantém atualizadas as actions fixadas por SHA nos workflows (ci, publicar, aceite-real).
+# O Dependabot troca o SHA e o comentário de versão ao lado ("# v4") no mesmo PR.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "America/Sao_Paulo"
+    # Um PR por semana com todas as actions, em vez de um por action.
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"

@@ -120,3 +120,12 @@
   vulnerability" do SECURITY.md passa a funcionar.
 - Continua sem `.github/dependabot.yml`. Por isso os alertas avisam sobre dependências com falha, mas ninguém abre
   PR para atualizar os SHAs fixados das actions.
+
+## 2026-11-28: dependabot.yml para as actions
+
+- O `.github/dependabot.yml` cobre o ecossistema `github-actions`. Ele roda toda segunda-feira, no fuso de
+  São Paulo, e junta todas as actions num único PR (grupo `actions`). Os commits saem com o prefixo `ci`.
+- Mantém atualizados os SHAs fixados em `ci.yml`, `publicar.yml` e `aceite-real.yml`, junto com o comentário de
+  versão (`# v4`).
+- Dependências Python ficaram fora: o `uv.lock` é atualizado à mão e o Scrapling é fixado de propósito, porque
+  atualizar exige rodar os testes de contrato.

@@ -42,7 +42,8 @@ Cada item foi conferido no código e, quando possível, por teste automatizado.
   - Nenhuma expressão do evento é interpolada em `run:`.
   - `id-token: write` só existe nos jobs de publicação, que ficam atrás dos environments `testpypi` e `pypi`.
   - Um PR de fork não publica nem lê segredos.
-  - As actions estão fixadas por SHA, e o `twine` e o backend de build (`hatchling`) por versão exata.
+  - As actions estão fixadas por SHA, atualizadas toda semana pelo Dependabot (`.github/dependabot.yml`), e o
+    `twine` e o backend de build (`hatchling`) estão fixados por versão exata.
 - **robots.txt obrigatório.** Não há opção para desligá-lo (`RSP-P004`). Um robots.txt ilegível fecha o site por
   5 minutos em vez de liberar tudo.
 - **Sem evasão.** Opções de disfarce (impersonate, stealth, solver, impressão digital, headers de navegador falsos)
